@@ -1,12 +1,12 @@
 // Package ui implements the musicli TUI using Bubble Tea v2.
 //
-// Phase 3 layout:
-//   - Left sidebar: track list (bubbles/list)
-//   - Main area: now-playing info (title/artist/album, placeholder for
-//     cover+lyrics in later phases)
+// Layout:
+//   - Top bar: current track info (title/artist/album)
+//   - Left pane: cover + lyrics placeholder
+//   - Right pane: track list (bubbles/list)
 //   - Bottom: player bar (progress + controls + state)
 //
-// Responsive: collapses to single column on narrow terminals.
+// Responsive: left pane hides on narrow terminals (<80 cols).
 // Keyboard + mouse supported. KeyMap is hardcoded (phase 11 adds TOML override).
 package ui
 
@@ -20,15 +20,16 @@ import (
 
 // Styles holds lipgloss styles derived from the current theme.
 type Styles struct {
-	theme   *theme.Theme
-	doc     lipgloss.Style
-	sidebar lipgloss.Style
-	main    lipgloss.Style
-	player  lipgloss.Style
-	title   lipgloss.Style
-	muted   lipgloss.Style
-	accent  lipgloss.Style
-	help    lipgloss.Style
+	theme     *theme.Theme
+	doc       lipgloss.Style
+	topBar    lipgloss.Style
+	leftPane  lipgloss.Style
+	rightPane lipgloss.Style
+	player    lipgloss.Style
+	title     lipgloss.Style
+	muted     lipgloss.Style
+	accent    lipgloss.Style
+	help      lipgloss.Style
 }
 
 // NewStyles builds styles from a theme.
@@ -37,10 +38,17 @@ func NewStyles(t *theme.Theme) *Styles {
 	return &Styles{
 		theme: t,
 		doc:   lipgloss.NewStyle().Foreground(t.Fg).Background(t.Bg),
-		sidebar: lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), false, false, false, true).
+		topBar: lipgloss.NewStyle().
+			Background(t.Subtle).
+			Foreground(t.Fg).
+			Border(lipgloss.NormalBorder(), false, false, true, false).
 			BorderForeground(borderColor),
-		main: lipgloss.NewStyle().Padding(0, 1),
+		leftPane: lipgloss.NewStyle().
+			Background(t.Bg).
+			Border(lipgloss.NormalBorder(), false, true, false, false).
+			BorderForeground(borderColor),
+		rightPane: lipgloss.NewStyle().
+			Background(t.Bg),
 		player: lipgloss.NewStyle().
 			Background(t.Subtle).
 			Border(lipgloss.NormalBorder(), true, false, false, false).

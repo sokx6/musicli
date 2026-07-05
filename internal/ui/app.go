@@ -60,9 +60,9 @@ type App struct {
 	trackList list.Model
 	progress  progress.Model
 
-	tracks    []*library.Track
-	current   int // index into tracks, -1 if none
-	loading   bool
+	tracks  []*library.Track
+	current int // index into tracks, -1 if none
+	loading bool
 
 	// playback state mirror (polled from engine)
 	pos    int
@@ -294,29 +294,45 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleMouse processes mouse click messages.
 func (a *App) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	// Click in the sidebar list area → select; play only if selecting a
+	leftW := a.leftPaneWidth()
+	const topBarTotalH = 2    // 1 content + bottom border
+	const playerBarTotalH = 4 // 3 content + top border
+
+	// Click on the player bar (bottom 3 lines + border) → seek.
+	if msg.Y >= a.height-playerBarTotalH {
+		if a.dur > 0 && a.width > 0 {
+			target := a.dur * msg.X / a.width
+			return a, a.seekTo(target)
+		}
+		return a, nil
+	}
+
+	// Click in the right pane list area → select; play only if selecting a
 	// different track than the current one.
-	sidebarW := a.sidebarWidth()
-	if msg.X < sidebarW {
+	listStartX := leftW
+	if leftW > 0 {
+		listStartX++ // account for vertical divider
+	}
+	inListArea := (leftW == 0 || msg.X >= listStartX) &&
+		msg.Y >= topBarTotalH && msg.Y < a.height-playerBarTotalH
+	if inListArea {
+		// Adjust coordinates to the list's local space.
+		localMsg := tea.MouseClickMsg{
+			X:      msg.X - listStartX,
+			Y:      msg.Y - topBarTotalH,
+			Button: msg.Button,
+			Mod:    msg.Mod,
+		}
 		prevIdx := a.trackList.Index()
 		var cmd tea.Cmd
-		a.trackList, cmd = a.trackList.Update(msg)
+		a.trackList, cmd = a.trackList.Update(localMsg)
 		newIdx := a.trackList.Index()
 		if msg.Button == tea.MouseLeft && newIdx >= 0 && newIdx != prevIdx {
 			return a, a.playSelected()
 		}
 		return a, cmd
 	}
-	// Click on progress bar → seek
-	playerBarH := 4
-	if msg.Y >= a.height-playerBarH {
-		barX := msg.X
-		barW := a.width
-		if a.dur > 0 && barW > 0 {
-			target := a.dur * barX / barW
-			return a, a.seekTo(target)
-		}
-	}
+
 	return a, nil
 }
 
@@ -400,46 +416,44 @@ func (a *App) seekTo(target int) tea.Cmd {
 
 // --- layout ---
 
-func (a *App) sidebarWidth() int {
-	const maxSidebar = 50
-	const minMain = 10
-
-	if a.width < 60 {
-		// Narrow terminal: collapse to sidebar only.
-		return max(1, a.width)
+func (a *App) leftPaneWidth() int {
+	if a.width < 80 {
+		return 0
 	}
-
-	w := a.width / 3
-	if w > maxSidebar {
-		w = maxSidebar
-	}
-	if w > a.width-minMain {
-		w = a.width - minMain
-	}
+	w := int(float64(a.width) * 0.4)
 	if w < 1 {
 		w = 1
 	}
 	return w
 }
 
+func (a *App) bodyHeight() int {
+	const topBarH = 2    // 1 content + bottom border
+	const playerBarH = 4 // 3 content + top border
+	h := a.height - topBarH - playerBarH
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
 func (a *App) resizeComponents() {
 	if a.width == 0 || a.height == 0 {
 		return
 	}
-	const playerBarH = 4
+	leftW := a.leftPaneWidth()
+	rightW := a.width - leftW
+	bodyH := a.bodyHeight()
 
-	sidebarW := a.sidebarWidth()
-	mainH := a.height - playerBarH
-	if mainH < 1 {
-		mainH = 1
+	listW := rightW
+	if leftW > 0 {
+		listW-- // vertical divider column
 	}
-
-	listW := sidebarW - 1
 	if listW < 1 {
 		listW = 1
 	}
 	a.trackList.SetWidth(listW)
-	a.trackList.SetHeight(mainH)
+	a.trackList.SetHeight(bodyH)
 
 	progressW := a.width - 2
 	if progressW < 1 {
@@ -454,33 +468,35 @@ func (a *App) View() tea.View {
 		return tea.NewView("Initializing...")
 	}
 
-	const playerBarH = 4
-	mainH := a.height - playerBarH
-	if mainH < 1 {
-		mainH = 1
-	}
+	bodyH := a.bodyHeight()
+	leftW := a.leftPaneWidth()
+	rightW := a.width - leftW
 
-	// Sidebar: track list
-	sidebarW := a.sidebarWidth()
-	sidebar := a.styles.sidebar.
-		Width(sidebarW).
-		Height(mainH).
+	topBar := a.renderTopBar()
+
+	rightPaneW := rightW
+	if leftW > 0 {
+		rightPaneW-- // vertical divider column
+	}
+	rightPane := a.styles.rightPane.
+		Width(rightPaneW).
+		Height(bodyH).
 		Render(a.trackList.View())
 
-	// Player bar
-	bar := a.renderPlayerBar()
-
 	var body string
-	if a.width < 60 {
-		// Narrow terminal: sidebar only to avoid overflow.
-		body = sidebar
+	if leftW > 0 {
+		leftPane := a.styles.leftPane.
+			Width(leftW).
+			Height(bodyH).
+			Render(a.renderLeftPane())
+		body = lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 	} else {
-		// Main area: now playing info
-		main := a.renderMain()
-		body = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, main)
+		body = rightPane
 	}
 
-	full := lipgloss.JoinVertical(lipgloss.Left, body, bar)
+	bar := a.renderPlayerBar()
+
+	full := lipgloss.JoinVertical(lipgloss.Left, topBar, body, bar)
 
 	// Fill the entire terminal frame so stale lines are cleared on resize.
 	frame := a.styles.doc.Width(a.width).Height(a.height).Render(full)
@@ -490,43 +506,41 @@ func (a *App) View() tea.View {
 	return v
 }
 
-func (a *App) renderMain() string {
-	w := a.width - a.sidebarWidth()
-	h := a.height - 4
+func (a *App) renderTopBar() string {
+	var content string
+	if a.current >= 0 && a.current < len(a.tracks) {
+		t := a.tracks[a.current]
+		title := a.styles.title.Render(t.Title)
+		parts := []string{}
+		if t.Artist != "" {
+			parts = append(parts, t.Artist)
+		}
+		if t.Album != "" {
+			parts = append(parts, t.Album)
+		}
+		if len(parts) > 0 {
+			meta := a.styles.muted.Render(strings.Join(parts, " - "))
+			content = "▶ " + title + " - " + meta
+		} else {
+			content = "▶ " + title
+		}
+	} else {
+		content = a.styles.title.Render("musicli")
+	}
+	return a.styles.topBar.Width(a.width).Render(content)
+}
+
+func (a *App) renderLeftPane() string {
+	w := a.leftPaneWidth()
+	h := a.bodyHeight()
 	if w < 1 {
 		w = 1
 	}
 	if h < 1 {
 		h = 1
 	}
-
-	var b strings.Builder
-	if a.current >= 0 && a.current < len(a.tracks) {
-		t := a.tracks[a.current]
-		b.WriteString(a.styles.title.Render(t.Title))
-		b.WriteString("\n")
-		if t.Artist != "" {
-			b.WriteString(a.styles.muted.Render(t.Artist))
-			b.WriteString("\n")
-		}
-		if t.Album != "" {
-			b.WriteString(a.styles.muted.Render(t.Album))
-			b.WriteString("\n")
-		}
-		b.WriteString("\n")
-		b.WriteString(a.styles.muted.Render("[ cover + lyrics in later phases ]"))
-	} else if a.loading {
-		b.WriteString(a.styles.muted.Render("Scanning library..."))
-	} else if len(a.tracks) == 0 {
-		b.WriteString(a.styles.muted.Render("No tracks loaded.\nPass a file or directory path."))
-	} else {
-		b.WriteString(a.styles.muted.Render("Select a track to play."))
-	}
-
-	return a.styles.main.
-		Width(w).
-		Height(h).
-		Render(b.String())
+	placeholder := a.styles.muted.Render("[ cover + lyrics ]")
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, placeholder)
 }
 
 func (a *App) renderPlayerBar() string {
