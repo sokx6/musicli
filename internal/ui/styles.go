@@ -35,14 +35,18 @@ type Styles struct {
 func NewStyles(t *theme.Theme) *Styles {
 	return &Styles{
 		theme: t,
-		doc:   lipgloss.NewStyle().Background(t.Bg).Foreground(t.Fg),
+		doc:   lipgloss.NewStyle().Foreground(t.Fg),
 		sidebar: lipgloss.NewStyle().
 			Background(t.Bg).Foreground(t.Fg).
-			BorderLeft(false),
+			BorderRight(true).
+			BorderForeground(t.Muted),
 		main: lipgloss.NewStyle().
 			Background(t.Bg).Foreground(t.Fg).Padding(0, 1),
 		player: lipgloss.NewStyle().
-			Background(t.Subtle).Foreground(t.Fg).Padding(0, 1),
+			Background(t.Subtle).Foreground(t.Fg).
+			BorderTop(true).
+			BorderForeground(t.Muted).
+			Padding(0, 1),
 		title:  lipgloss.NewStyle().Foreground(t.Accent).Bold(true),
 		muted:  lipgloss.NewStyle().Foreground(t.Muted),
 		accent: lipgloss.NewStyle().Foreground(t.Accent),
@@ -54,12 +58,12 @@ func NewStyles(t *theme.Theme) *Styles {
 // We use the default delegate but theme it.
 func newListStyles(t *theme.Theme) list.DefaultItemStyles {
 	s := list.NewDefaultItemStyles(t.Mode == theme.ModeDark)
-	s.NormalTitle = s.NormalTitle.Foreground(t.Fg).Background(t.Bg)
-	s.NormalDesc = s.NormalDesc.Foreground(t.Muted).Background(t.Bg)
+	s.NormalTitle = s.NormalTitle.Foreground(t.Fg)
+	s.NormalDesc = s.NormalDesc.Foreground(t.Muted)
 	s.SelectedTitle = s.SelectedTitle.Foreground(t.Accent).Background(t.Subtle).Bold(true)
 	s.SelectedDesc = s.SelectedDesc.Foreground(t.Accent).Background(t.Subtle)
-	s.DimmedTitle = s.DimmedTitle.Foreground(t.Muted).Background(t.Bg)
-	s.DimmedDesc = s.DimmedDesc.Foreground(t.Muted).Background(t.Bg)
+	s.DimmedTitle = s.DimmedTitle.Foreground(t.Muted)
+	s.DimmedDesc = s.DimmedDesc.Foreground(t.Muted)
 	s.FilterMatch = s.FilterMatch.Foreground(t.Highlight)
 	return s
 }

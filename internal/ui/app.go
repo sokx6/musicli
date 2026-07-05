@@ -294,21 +294,21 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleMouse processes mouse click messages.
 func (a *App) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	// Click in the sidebar list area → select + maybe play
+	// Click in the sidebar list area → select; play only if selecting a
+	// different track than the current one.
 	sidebarW := a.sidebarWidth()
 	if msg.X < sidebarW {
-		// forward to list for selection
+		prevIdx := a.trackList.Index()
 		var cmd tea.Cmd
 		a.trackList, cmd = a.trackList.Update(msg)
-		// double-click or enter-like click → play
-		if msg.Button == tea.MouseLeft {
-			// list.Update handles single click selection; play on click
+		newIdx := a.trackList.Index()
+		if msg.Button == tea.MouseLeft && newIdx >= 0 && newIdx != prevIdx {
 			return a, a.playSelected()
 		}
 		return a, cmd
 	}
 	// Click on progress bar → seek
-	playerBarH := 3
+	playerBarH := 4
 	if msg.Y >= a.height-playerBarH {
 		barX := msg.X
 		barW := a.width
@@ -325,6 +325,11 @@ func (a *App) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 func (a *App) playSelected() tea.Cmd {
 	idx := a.trackList.Index()
 	if idx < 0 || idx >= len(a.tracks) {
+		return nil
+	}
+	// Don't restart if the same track is already playing (avoids stutter from
+	// rapid Enter/click re-triggering ffmpeg spawn).
+	if idx == a.current && a.state == audio.StatePlaying {
 		return nil
 	}
 	a.current = idx
@@ -414,13 +419,12 @@ func (a *App) resizeComponents() {
 		return
 	}
 	sidebarW := a.sidebarWidth()
-	mainW := a.width - sidebarW
-	playerBarH := 3
+	playerBarH := 4
 	mainH := a.height - playerBarH
 
-	a.trackList.SetWidth(sidebarW)
+	a.trackList.SetWidth(sidebarW - 1)
 	a.trackList.SetHeight(mainH)
-	a.progress.SetWidth(mainW)
+	a.progress.SetWidth(a.width - 2)
 }
 
 // View renders the full UI.
@@ -432,7 +436,7 @@ func (a *App) View() tea.View {
 	// Sidebar: track list
 	sidebar := a.styles.sidebar.
 		Width(a.sidebarWidth()).
-		Height(a.height-3).
+		Height(a.height-4).
 		Render(a.trackList.View())
 
 	// Main area: now playing info
@@ -451,7 +455,7 @@ func (a *App) View() tea.View {
 
 func (a *App) renderMain() string {
 	w := a.width - a.sidebarWidth()
-	h := a.height - 3
+	h := a.height - 4
 	if w < 1 {
 		w = 1
 	}
