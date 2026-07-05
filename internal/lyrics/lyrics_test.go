@@ -3,6 +3,7 @@ package lyrics
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -96,6 +97,34 @@ func TestLoadLocalPrefersSPLThenLRC(t *testing.T) {
 		t.Fatalf("loaded %q, want song.spl", path)
 	}
 	if len(got.Lines) != 1 || got.Lines[0].Text != "spl" {
+		t.Fatalf("loaded lyric mismatch: %#v", got)
+	}
+}
+
+func TestLoadLocalFallsBackToEmbeddedTagLyrics(t *testing.T) {
+	dir := t.TempDir()
+	audio := filepath.Join(dir, "song.mp3")
+	if err := os.WriteFile(audio, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loader := Loader{
+		ReadEmbedded: func(path string) (string, error) {
+			if !strings.HasSuffix(path, "song.mp3") {
+				t.Fatalf("unexpected embedded lyric path %q", path)
+			}
+			return "[00:01.00]embedded", nil
+		},
+	}
+
+	got, source, err := loader.Load(audio)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if source != "tag:"+audio {
+		t.Fatalf("source = %q, want tag:%s", source, audio)
+	}
+	if len(got.Lines) != 1 || got.Lines[0].Text != "embedded" {
 		t.Fatalf("loaded lyric mismatch: %#v", got)
 	}
 }
