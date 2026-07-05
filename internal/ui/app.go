@@ -781,13 +781,13 @@ func (a *App) renderLyricsPane(w, h int) string {
 				rendered = append(rendered, a.renderCurrentLyricLine(a.lyric.Lines[visual.lineIdx], w-1))
 			} else {
 				text := truncateCellText(a.lyric.Lines[visual.lineIdx].Text, w-1)
-				rendered = append(rendered, a.styles.muted.Render(text))
+				rendered = append(rendered, padCellText(a.styles.muted.Render(text), w-1))
 			}
 		case lyricRowTranslation:
 			text := truncateCellText(visual.text, w-1)
-			rendered = append(rendered, a.styles.muted.Render(text))
+			rendered = append(rendered, padCellText(a.styles.muted.Render(text), w-1))
 		default:
-			rendered = append(rendered, "")
+			rendered = append(rendered, strings.Repeat(" ", max(0, w-1)))
 		}
 	}
 	return lipgloss.NewStyle().Width(w).Height(h).PaddingLeft(1).Render(strings.Join(rendered, "\n"))
@@ -828,9 +828,12 @@ func (a *App) lyricVisualRows(currentLine int) ([]lyricVisualRow, int) {
 }
 
 func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
+	muted := ansi.NewStyle().ForegroundColor(a.theme.Muted)
+	accent := ansi.NewStyle().ForegroundColor(a.theme.Accent)
+
 	if len(line.Words) == 0 {
 		text := truncateCellText(line.Text, width)
-		return a.styles.accent.Render(text)
+		return padCellText(accent.Styled(text), width)
 	}
 
 	current := -1
@@ -841,7 +844,7 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 		}
 	}
 	if current < 0 {
-		return a.styles.muted.Render(truncateCellText(line.Text, width))
+		return padCellText(muted.Styled(truncateCellText(line.Text, width)), width)
 	}
 
 	prefix := wordsText(line.Words[:current])
@@ -850,7 +853,7 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 
 	var b strings.Builder
 	remaining := width
-	writeRun := func(style lipgloss.Style, text string) bool {
+	writeRun := func(style ansi.Style, text string) bool {
 		if remaining <= 0 || text == "" {
 			return false
 		}
@@ -858,18 +861,22 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 		if clipped == "" {
 			return false
 		}
-		b.WriteString(style.Render(clipped))
-		remaining -= lipgloss.Width(clipped)
+		b.WriteString(style.String())
+		b.WriteString(clipped)
+		remaining -= ansi.StringWidth(clipped)
 		return strings.HasSuffix(clipped, "…")
 	}
-	if writeRun(a.styles.muted, prefix) {
-		return b.String()
+	if writeRun(muted, prefix) {
+		b.WriteString(ansi.ResetStyle)
+		return padCellText(b.String(), width)
 	}
-	if writeRun(a.styles.accent, active) {
-		return b.String()
+	if writeRun(accent, active) {
+		b.WriteString(ansi.ResetStyle)
+		return padCellText(b.String(), width)
 	}
-	writeRun(a.styles.muted, suffix)
-	return b.String()
+	writeRun(muted, suffix)
+	b.WriteString(ansi.ResetStyle)
+	return padCellText(b.String(), width)
 }
 
 func wordsText(words []lyrics.Word) string {
@@ -900,14 +907,17 @@ func truncateCellText(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	if lipgloss.Width(s) <= width {
-		return s
+	return ansi.Truncate(s, width, "…")
+}
+
+func padCellText(s string, width int) string {
+	if width <= 0 {
+		return ""
 	}
-	runes := []rune(s)
-	for len(runes) > 0 && lipgloss.Width(string(runes)+"…") > width {
-		runes = runes[:len(runes)-1]
+	if pad := width - ansi.StringWidth(s); pad > 0 {
+		return s + strings.Repeat(" ", pad)
 	}
-	return string(runes) + "…"
+	return s
 }
 
 func (a *App) renderPlayerBar() string {

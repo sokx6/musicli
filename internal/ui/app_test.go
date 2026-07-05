@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/locxl/musicli/internal/library"
 	"github.com/locxl/musicli/internal/log"
 	"github.com/locxl/musicli/internal/lyrics"
@@ -214,7 +215,7 @@ func TestRenderLyricsPaneDoesNotHighlightTranslationAtPairBoundary(t *testing.T)
 
 func TestRenderCurrentLyricLineKeepsWideTextStable(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
-	app.pos = 2500
+	const lineWidth = 40
 	line := lyrics.Line{
 		Text: "ツギハギだらけの君との時間も",
 		Words: []lyrics.Word{
@@ -235,20 +236,30 @@ func TestRenderCurrentLyricLineKeepsWideTextStable(t *testing.T) {
 		},
 		Translation: "patched time",
 	}
+	wantWidth := ansi.StringWidth(line.Text)
 
-	rendered := app.renderCurrentLyricLine(line, 80)
-	plain := stripANSI(rendered)
-	if plain != line.Text {
-		t.Fatalf("rendered text shifted or dropped glyphs: %q", plain)
-	}
-	if strings.Contains(plain, "patched time") {
-		t.Fatalf("current line should not include translation: %q", plain)
-	}
-	if strings.Contains(rendered, "\x1b[1;") || strings.Contains(rendered, "\x1b[1m") {
-		t.Fatalf("word highlight should not use bold SGR because it can shift wide glyphs: %q", rendered)
-	}
-	if got := strings.Count(rendered, "\x1b["); got > 6 {
-		t.Fatalf("word highlight should render at most three styled runs, got %d ANSI sequences: %q", got/2, rendered)
+	for _, word := range line.Words {
+		app.pos = word.StartMs
+		rendered := app.renderCurrentLyricLine(line, lineWidth)
+		plain := ansi.Strip(rendered)
+		if strings.TrimRight(plain, " ") != line.Text {
+			t.Fatalf("rendered text shifted or dropped glyphs at %q: %q", word.Text, plain)
+		}
+		if strings.Contains(plain, "patched time") {
+			t.Fatalf("current line should not include translation: %q", plain)
+		}
+		if got := ansi.StringWidth(strings.TrimRight(plain, " ")); got != wantWidth {
+			t.Fatalf("text width changed at %q: got %d, want %d: %q", word.Text, got, wantWidth, rendered)
+		}
+		if got := ansi.StringWidth(rendered); got != lineWidth {
+			t.Fatalf("rendered line should cover full row at %q: got %d, want %d: %q", word.Text, got, lineWidth, rendered)
+		}
+		if strings.Contains(rendered, "\x1b[1;") || strings.Contains(rendered, "\x1b[1m") {
+			t.Fatalf("word highlight should not use bold SGR because it can shift wide glyphs: %q", rendered)
+		}
+		if got := strings.Count(rendered, "\x1b["); got > 4 {
+			t.Fatalf("word highlight should render at most three styled runs, got %d ANSI sequences: %q", got/2, rendered)
+		}
 	}
 }
 
