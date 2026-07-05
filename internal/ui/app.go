@@ -57,8 +57,8 @@ type App struct {
 
 	width, height int
 
-	trackList  list.Model
-	delegate   list.DefaultDelegate
+	trackList list.Model
+	delegate  list.DefaultDelegate
 	progress  progress.Model
 
 	tracks  []*library.Track
@@ -66,16 +66,18 @@ type App struct {
 	loading bool
 
 	// playback state mirror (polled from engine)
-	pos    int
-	dur    int
-	state  audio.State
-	volume int
-	speed  float64
-	errMsg string
+	pos       int
+	dur       int
+	state     audio.State
+	lastState audio.State
+	volume    int
+	speed     float64
+	errMsg    string
 }
 
 // New creates the App model. Engine and scanner must be initialised.
 func New(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *log.Logger) *App {
+	fl := lg.WithModule("ui").WithFunc("New")
 	keys := defaultKeyMap()
 	styles := NewStyles(t)
 	delegate := newListDelegate(t)
@@ -91,6 +93,13 @@ func New(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *log.Logger)
 
 	pbar := newProgressBar(t)
 
+	fl.Debug("app created",
+		"engine", eng != nil,
+		"scanner", sc != nil,
+		"theme_mode", t.Mode,
+		"keybindings", 12,
+	)
+
 	return &App{
 		log:       lg.WithModule("ui"),
 		theme:     t,
@@ -104,6 +113,7 @@ func New(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *log.Logger)
 		current:   -1,
 		volume:    80,
 		speed:     1.0,
+		lastState: audio.StateStopped,
 	}
 }
 
@@ -149,22 +159,27 @@ func tickCmd() tea.Cmd {
 
 // Init starts the app.
 func (a *App) Init() tea.Cmd {
+	a.log.WithFunc("Init").Debug("init started")
 	return tea.Batch(tickCmd())
 }
 
 // LoadPath triggers an async scan of the given file/dir path.
 func (a *App) LoadPath(path string) {
+	fl := a.log.WithFunc("LoadPath")
 	a.loading = true
 	a.trackList.ResetSelected()
 	a.trackList.Title = "Scanning..."
 	a.trackList.SetItems([]list.Item{})
 	a.tracks = nil
+	fl.Debug("loading path", "path", path)
 }
 
 // LoadPathCmd returns a command that scans path.
 func (a *App) LoadPathCmd(path string) tea.Cmd {
+	fl := a.log.WithFunc("LoadPathCmd")
 	a.loading = true
 	a.trackList.Title = "Scanning..."
+	fl.Debug("loading path", "path", path)
 	return scanCmd(a.scanner, path)
 }
 
@@ -173,23 +188,33 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
+		fl := a.log.WithFunc("Update")
+		fl.Debug("received msg", "type", "WindowSizeMsg", "width", msg.Width, "height", msg.Height)
 		a.width, a.height = msg.Width, msg.Height
 		a.resizeComponents()
 		return a, nil
 
 	case tea.KeyMsg:
+		fl := a.log.WithFunc("Update")
+		fl.Debug("received msg", "type", "KeyMsg", "key", msg.String())
 		return a.handleKey(msg)
 
 	case tea.MouseClickMsg:
+		fl := a.log.WithFunc("Update")
+		fl.Debug("received msg", "type", "MouseClickMsg", "x", msg.X, "y", msg.Y, "button", mouseButtonStr(msg.Button))
 		return a.handleMouse(msg)
 
 	case tea.MouseWheelMsg:
+		fl := a.log.WithFunc("Update")
+		fl.Debug("received msg", "type", "MouseWheelMsg")
 		// forward wheel to list
 		var cmd tea.Cmd
 		a.trackList, cmd = a.trackList.Update(msg)
 		return a, cmd
 
 	case TracksLoadedMsg:
+		fl := a.log.WithFunc("Update")
+		fl.Debug("received msg", "type", "TracksLoadedMsg", "count", len(msg.Tracks))
 		a.loading = false
 		a.tracks = msg.Tracks
 		items := make([]list.Item, len(msg.Tracks))
@@ -202,6 +227,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case ScanErrMsg:
+		fl := a.log.WithFunc("Update")
+		fl.Debug("received msg", "type", "ScanErrMsg", "err", msg.Err)
 		a.loading = false
 		a.trackList.Title = "Tracks"
 		a.errMsg = fmt.Sprintf("scan failed: %v", msg.Err)
@@ -213,6 +240,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tickCmd()
 
 	case errMsg:
+		fl := a.log.WithFunc("Update")
+		fl.Debug("received msg", "type", "errMsg", "err", msg.err)
 		a.errMsg = msg.err.Error()
 		return a, nil
 	}
@@ -225,13 +254,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // pollEngine reads engine state for the UI (oracle Sim-C: polling, no callback).
 func (a *App) pollEngine() {
+	fl := a.log.WithFunc("pollEngine")
 	a.pos = a.engine.Position()
 	a.dur = a.engine.Duration()
+	prevState := a.state
 	a.state = a.engine.State()
 	a.volume = a.engine.Volume()
 	a.speed = a.engine.Speed()
 	if err := a.engine.Err(); err != nil {
 		a.errMsg = err.Error()
+	}
+	if a.state != prevState {
+		fl.Debug("state changed", "from", prevState.String(), "to", a.state.String())
 	}
 	// update progress bar
 	if a.dur > 0 {
@@ -243,8 +277,12 @@ func (a *App) pollEngine() {
 
 // handleKey processes key messages.
 func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	fl := a.log.WithFunc("handleKey")
+	keyStr := msg.String()
+
 	// If the list is filtering, let it handle keys.
 	if a.trackList.FilterState() == list.Filtering {
+		fl.Debug("forwarding to list (filtering)", "key", keyStr)
 		var cmd tea.Cmd
 		a.trackList, cmd = a.trackList.Update(msg)
 		return a, cmd
@@ -252,43 +290,55 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case key.Matches(msg, a.keys.Quit):
+		fl.Debug("key matched", "key", keyStr, "action", "quit")
 		return a, tea.Quit
 
 	case key.Matches(msg, a.keys.Enter):
+		fl.Debug("key matched", "key", keyStr, "action", "playSelected")
 		return a, a.playSelected()
 
 	case key.Matches(msg, a.keys.PlayPause):
+		fl.Debug("key matched", "key", keyStr, "action", "togglePlayPause")
 		return a, a.togglePlayPause()
 
 	case key.Matches(msg, a.keys.Next):
+		fl.Debug("key matched", "key", keyStr, "action", "nextTrack")
 		return a, a.nextTrack()
 
 	case key.Matches(msg, a.keys.Prev):
+		fl.Debug("key matched", "key", keyStr, "action", "prevTrack")
 		return a, a.prevTrack()
 
 	case key.Matches(msg, a.keys.SeekFwd):
+		fl.Debug("key matched", "key", keyStr, "action", "seekRelative+5000")
 		return a, a.seekRelative(5000)
 
 	case key.Matches(msg, a.keys.SeekBack):
+		fl.Debug("key matched", "key", keyStr, "action", "seekRelative-5000")
 		return a, a.seekRelative(-5000)
 
 	case key.Matches(msg, a.keys.VolUp):
+		fl.Debug("key matched", "key", keyStr, "action", "volUp")
 		a.engine.SetVolume(a.volume + 5)
 		return a, nil
 
 	case key.Matches(msg, a.keys.VolDown):
+		fl.Debug("key matched", "key", keyStr, "action", "volDown")
 		a.engine.SetVolume(a.volume - 5)
 		return a, nil
 
 	case key.Matches(msg, a.keys.SpeedUp):
+		fl.Debug("key matched", "key", keyStr, "action", "speedUp")
 		a.engine.SetSpeed(a.speed + 0.1)
 		return a, nil
 
 	case key.Matches(msg, a.keys.SpeedDown):
+		fl.Debug("key matched", "key", keyStr, "action", "speedDown")
 		a.engine.SetSpeed(a.speed - 0.1)
 		return a, nil
 	}
 
+	fl.Debug("key unmatched, forwarding to list", "key", keyStr)
 	// navigation falls through to list
 	var cmd tea.Cmd
 	a.trackList, cmd = a.trackList.Update(msg)
@@ -297,12 +347,16 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleMouse processes mouse click messages.
 func (a *App) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	fl := a.log.WithFunc("handleMouse")
 	leftW := a.leftPaneWidth()
 	const topBarTotalH = 2    // 1 content + bottom border
 	const playerBarTotalH = 4 // 3 content + top border
 
+	fl.Debug("mouse click", "x", msg.X, "y", msg.Y, "button", mouseButtonStr(msg.Button))
+
 	// Click on the player bar (bottom 3 lines + border) → seek.
 	if msg.Y >= a.height-playerBarTotalH {
+		fl.Debug("hit player bar", "action", "seek")
 		if a.dur > 0 && a.width > 0 {
 			target := a.dur * msg.X / a.width
 			return a, a.seekTo(target)
@@ -319,6 +373,7 @@ func (a *App) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	inListArea := (leftW == 0 || msg.X >= listStartX) &&
 		msg.Y >= topBarTotalH && msg.Y < a.height-playerBarTotalH
 	if inListArea {
+		fl.Debug("hit list area", "action", "select")
 		// Adjust coordinates to the list's local space.
 		localMsg := tea.MouseClickMsg{
 			X:      msg.X - listStartX,
@@ -342,53 +397,67 @@ func (a *App) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // --- playback commands ---
 
 func (a *App) playSelected() tea.Cmd {
+	fl := a.log.WithFunc("playSelected")
 	idx := a.trackList.Index()
 	if idx < 0 || idx >= len(a.tracks) {
+		fl.Debug("invalid index", "idx", idx, "tracks", len(a.tracks))
 		return nil
 	}
 	// Don't restart if the same track is already playing (avoids stutter from
 	// rapid Enter/click re-triggering ffmpeg spawn).
 	if idx == a.current && a.state == audio.StatePlaying {
+		fl.Debug("skipped, same track playing", "idx", idx, "title", a.tracks[idx].Title)
 		return nil
 	}
 	a.current = idx
 	t := a.tracks[idx]
-	a.log.Info("playing", "path", t.Path, "title", t.Title)
+	fl.Debug("playing track", "idx", idx, "title", t.Title, "path", t.Path)
 	if err := a.engine.Play(t.Path); err != nil {
+		fl.Error("Play failed", "err", err)
 		return func() tea.Msg { return errMsg{err: err} }
 	}
 	return nil
 }
 
 func (a *App) togglePlayPause() tea.Cmd {
+	fl := a.log.WithFunc("togglePlayPause")
 	switch a.state {
 	case audio.StatePlaying:
+		fl.Debug("toggling", "from", "playing", "action", "pause")
 		a.engine.Pause()
 	case audio.StatePaused:
+		fl.Debug("toggling", "from", "paused", "action", "resume")
 		a.engine.Resume()
 	case audio.StateStopped:
+		fl.Debug("toggling", "from", "stopped", "action", "playSelected")
 		return a.playSelected()
 	}
 	return nil
 }
 
 func (a *App) nextTrack() tea.Cmd {
+	fl := a.log.WithFunc("nextTrack")
 	if len(a.tracks) == 0 {
 		return nil
 	}
+	prevIdx := a.current
 	a.current = (a.current + 1) % len(a.tracks)
 	a.trackList.Select(a.current)
 	t := a.tracks[a.current]
+	fl.Debug("next track", "prevIdx", prevIdx, "newIdx", a.current, "title", t.Title)
 	if err := a.engine.Play(t.Path); err != nil {
+		fl.Error("Play failed", "err", err)
 		return func() tea.Msg { return errMsg{err: err} }
 	}
 	return nil
 }
 
 func (a *App) prevTrack() tea.Cmd {
+	fl := a.log.WithFunc("prevTrack")
 	if len(a.tracks) == 0 {
 		return nil
 	}
+	prevIdx := a.current
 	if a.current < 0 {
 		a.current = 0
 	} else {
@@ -396,22 +465,38 @@ func (a *App) prevTrack() tea.Cmd {
 	}
 	a.trackList.Select(a.current)
 	t := a.tracks[a.current]
+	fl.Debug("prev track", "prevIdx", prevIdx, "newIdx", a.current, "title", t.Title)
 	if err := a.engine.Play(t.Path); err != nil {
+		fl.Error("Play failed", "err", err)
 		return func() tea.Msg { return errMsg{err: err} }
 	}
 	return nil
 }
 
 func (a *App) seekRelative(deltaMs int) tea.Cmd {
+	fl := a.log.WithFunc("seekRelative")
 	if a.dur <= 0 {
+		fl.Debug("seek skipped, no duration")
 		return nil
 	}
 	target := a.pos + deltaMs
+	fl.Debug("seeking relative", "delta", deltaMs, "pos", a.pos, "target", target)
 	return a.seekTo(target)
 }
 
 func (a *App) seekTo(target int) tea.Cmd {
+	fl := a.log.WithFunc("seekTo")
+	if target < 0 {
+		fl.Debug("clamped to 0", "target", target)
+		target = 0
+	}
+	if a.dur > 0 && target > a.dur {
+		fl.Debug("clamped to duration", "target", target, "dur", a.dur)
+		target = a.dur
+	}
+	fl.Debug("seeking to", "target", target)
 	if err := a.engine.Seek(target); err != nil {
+		fl.Error("Seek failed", "err", err)
 		return func() tea.Msg { return errMsg{err: err} }
 	}
 	return nil
@@ -441,6 +526,7 @@ func (a *App) bodyHeight() int {
 }
 
 func (a *App) resizeComponents() {
+	fl := a.log.WithFunc("resizeComponents")
 	if a.width == 0 || a.height == 0 {
 		return
 	}
@@ -454,7 +540,7 @@ func (a *App) resizeComponents() {
 	}
 	a.trackList.SetWidth(listW)
 	a.trackList.SetHeight(bodyH)
-	a.log.Debug("layout sizes",
+	fl.Debug("layout sizes",
 		"term_w", a.width, "term_h", a.height,
 		"leftW", leftW, "rightW", rightW, "listW", listW, "bodyH", bodyH)
 
@@ -478,7 +564,8 @@ func (a *App) resizeComponents() {
 
 // View renders the full UI.
 func (a *App) View() tea.View {
-	if a.width == 0 {
+	if a.width == 0 || a.height == 0 {
+		a.log.WithFunc("View").Debug("zero size, early return")
 		return tea.NewView("Initializing...")
 	}
 
@@ -614,6 +701,16 @@ func fmtDuration(d time.Duration) string {
 		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
 	}
 	return fmt.Sprintf("%d:%02d", m, s)
+}
+
+func mouseButtonStr(b tea.MouseButton) string {
+	switch b {
+	case tea.MouseLeft:
+		return "left"
+	case tea.MouseRight:
+		return "right"
+	}
+	return fmt.Sprintf("%d", b)
 }
 
 // ensure context import is used (engine takes ctx in future)

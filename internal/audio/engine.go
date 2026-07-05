@@ -28,6 +28,7 @@ import (
 	"io"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,8 +39,8 @@ import (
 // PCM format constants — the single source of truth shared by the ffmpeg
 // command construction and the oto context init (oracle Risk-C pitfall #4).
 const (
-	SampleRate     = 48000
-	ChannelCount   = 2
+	SampleRate      = 48000
+	ChannelCount    = 2
 	BitDepthInBytes = 2 // signed 16-bit
 )
 
@@ -66,27 +67,27 @@ func (s State) String() string {
 // Engine plays audio files via ffmpeg + oto. Concrete type (single
 // implementation; no interface needed per oracle Sim-F).
 type Engine struct {
-	log  *log.Logger
-	oto  *oto.Context
+	log *log.Logger
+	oto *oto.Context
 
 	mu sync.Mutex // protects all fields below
 
 	state    State
-	err      error          // last async error (ffmpeg crash etc.)
-	path     string         // current file path
-	duration int            // ms (from ffprobe)
-	position int            // ms, last anchor
-	speed    float64        // 0.5-2.0
-	volume   float64        // 0.0-1.0
+	err      error   // last async error (ffmpeg crash etc.)
+	path     string  // current file path
+	duration int     // ms (from ffprobe)
+	position int     // ms, last anchor
+	speed    float64 // 0.5-2.0
+	volume   float64 // 0.0-1.0
 
 	// position tracking
-	playStartWall time.Time // wall time when playback (re)started at position
+	playStartWall time.Time     // wall time when playback (re)started at position
 	pausedAccum   time.Duration // total time spent paused since playStartWall
 
 	// current playback goroutine control
-	ffmpegCmd   *exec.Cmd
-	player      *oto.Player // current oto player (for immediate pause/mute)
-	readerDone  chan struct{} // closed when reader goroutine exits
+	ffmpegCmd    *exec.Cmd
+	player       *oto.Player   // current oto player (for immediate pause/mute)
+	readerDone   chan struct{} // closed when reader goroutine exits
 	cancelReader context.CancelFunc
 }
 
@@ -104,6 +105,7 @@ func New(ctx context.Context, logger *log.Logger) (*Engine, error) {
 	<-ready
 	l := logger.WithModule("audio").WithFunc("New")
 	l.Debug("oto context ready", "sample_rate", SampleRate, "channels", ChannelCount, "format", "s16le")
+	l.Debug("oto context created", "ready", true)
 	return &Engine{
 		log:    l,
 		oto:    otoCtx,
@@ -133,7 +135,7 @@ func (e *Engine) Play(path string) error {
 
 	// Probe duration in background — don't block playback start.
 	go func() {
-		dur, err := probeDuration(path)
+		dur, err := probeDuration(path, fl)
 		if err != nil {
 			fl.Warn("ffprobe duration failed; using 0", "path", path, "err", fmt.Errorf("probeDuration: %w", err))
 			return
@@ -232,6 +234,12 @@ func (e *Engine) Seek(positionMs int) error {
 
 // SetVolume sets volume (0-100, clamped to [0,1] for oto).
 func (e *Engine) SetVolume(v int) error {
+	fl := e.log.WithFunc("SetVolume")
+	old := -1
+	e.mu.Lock()
+	old = int(e.volume * 100)
+	e.mu.Unlock()
+	orig := v
 	if v < 0 {
 		v = 0
 	}
@@ -241,6 +249,7 @@ func (e *Engine) SetVolume(v int) error {
 	e.mu.Lock()
 	e.volume = float64(v) / 100.0
 	e.mu.Unlock()
+	fl.Debug("volume set", "old", old, "new", v, "clamped", orig != v)
 	return nil
 }
 
@@ -264,11 +273,13 @@ func (e *Engine) SetSpeed(s float64) error {
 	e.mu.Unlock()
 
 	if old == s {
+		fl.Debug("speed unchanged, skipping restart", "speed", s)
 		return nil
 	}
 	fl.Debug("speed changed", "from", old, "to", s)
 
 	if playing && path != "" {
+		fl.Debug("restarting ffmpeg for speed change", "position_ms", pos, "speed", s)
 		// Restart ffmpeg at current position with new atempo.
 		e.stopInternal(true)
 		e.mu.Lock()
@@ -279,11 +290,13 @@ func (e *Engine) SetSpeed(s float64) error {
 		e.mu.Unlock()
 		return e.startFFmpeg(pos)
 	}
+	fl.Debug("speed changed without restart (not playing)", "speed", s)
 	return nil
 }
 
 // Stop stops playback and clears the current track.
 func (e *Engine) Stop() {
+	fl := e.log.WithFunc("Stop")
 	e.stopInternal(true)
 	e.mu.Lock()
 	e.path = ""
@@ -291,6 +304,7 @@ func (e *Engine) Stop() {
 	e.duration = 0
 	e.state = StateStopped
 	e.mu.Unlock()
+	fl.Debug("stopped", "path_cleared", true, "state", "stopped")
 }
 
 // Position returns the current playback position in ms (client-side computed).
@@ -354,16 +368,36 @@ func (e *Engine) computePositionLocked() int {
 	if e.duration > 0 && pos > e.duration {
 		pos = e.duration
 	}
+	// ponytail: very verbose position trace — called every UI tick (~100ms)
+	e.log.WithFunc("computePositionLocked").Debug("position computed",
+		"state", e.state.String(),
+		"anchor_position", e.position,
+		"playStartWall", e.playStartWall.Format(time.RFC3339Nano),
+		"pausedAccum_ms", e.pausedAccum.Milliseconds(),
+		"speed", e.speed,
+		"result_ms", pos,
+	)
 	return pos
 }
 
 func (e *Engine) setErr(err error) {
 	e.mu.Lock()
+	oldErr := e.err
+	oldState := e.state
 	e.err = err
 	if err != nil {
 		e.state = StateStopped
 	}
+	newState := e.state
 	e.mu.Unlock()
+	if err != nil {
+		e.log.WithFunc("setErr").Debug("error set, state changed",
+			"old_err", oldErr,
+			"new_err", err,
+			"old_state", oldState.String(),
+			"new_state", newState.String(),
+		)
+	}
 }
 
 // startFFmpeg spawns ffmpeg at the given offset and pipes PCM into a new
@@ -393,6 +427,7 @@ func (e *Engine) startFFmpeg(offsetMs int) error {
 		"pipe:1",
 	}
 	fl.Debug("spawning ffmpeg", "path", path, "offset_ms", offsetMs, "speed", speed, "atempo", atempo)
+	fl.Debug("ffmpeg command", "cmd", "ffmpeg "+strings.Join(args, " "))
 
 	cmd := exec.Command("ffmpeg", args...)
 	stdout, err := cmd.StdoutPipe()
@@ -411,6 +446,7 @@ func (e *Engine) startFFmpeg(offsetMs int) error {
 	fl.Debug("ffmpeg started", "pid", cmd.Process.Pid, "path", path)
 
 	pr, pw := io.Pipe()
+	fl.Debug("io.Pipe created")
 	player := e.oto.NewPlayer(pr)
 	player.SetVolume(vol)
 	player.Play()
@@ -429,6 +465,7 @@ func (e *Engine) startFFmpeg(offsetMs int) error {
 	e.mu.Unlock()
 
 	go e.readerLoop(readerCtx, cmd, player, stdout, pr, pw, done, path)
+	fl.Debug("reader goroutine launched", "pid", cmd.Process.Pid)
 	return nil
 }
 
@@ -442,12 +479,16 @@ func (e *Engine) readerLoop(ctx context.Context, cmd *exec.Cmd, player *oto.Play
 	defer pr.Close()
 	defer pw.Close()
 
+	fl.Debug("io.Copy starting", "path", path)
 	n, copyErr := io.Copy(pw, stdout)
 	fl.Debug("pcm copy finished", "path", path, "bytes", n, "copy_err", copyErr)
 
+	fl.Debug("closing pipe writer")
 	pw.Close()
 
+	fl.Debug("waiting for ffmpeg exit")
 	waitErr := cmd.Wait()
+	fl.Debug("ffmpeg exited", "wait_err", waitErr)
 
 	select {
 	case <-ctx.Done():
@@ -491,9 +532,10 @@ func (e *Engine) stopInternal(reap bool) {
 	e.mu.Unlock()
 
 	if cmd == nil {
+		fl.Debug("no active ffmpeg, nothing to stop")
 		return
 	}
-	fl.Debug("stopping ffmpeg", "pid", cmd.Process.Pid)
+	fl.Debug("stopping ffmpeg", "pid", cmd.Process.Pid, "player_nil", player == nil, "cancel_nil", cancel == nil, "reap", reap)
 	// Immediately mute + pause the oto player so buffered audio stops
 	// instantly (oto keeps playing its internal buffer after ffmpeg dies).
 	if player != nil {
@@ -502,6 +544,7 @@ func (e *Engine) stopInternal(reap bool) {
 	}
 	if cancel != nil {
 		cancel()
+		fl.Debug("reader cancel called")
 	}
 	// SIGKILL — immediate process death. stdout closes → io.Copy returns
 	// → pw.Close() → oto reader EOF → readerLoop exits.
@@ -512,8 +555,11 @@ func (e *Engine) stopInternal(reap bool) {
 	if reap && done != nil {
 		select {
 		case <-done:
+			fl.Debug("reader goroutine reaped", "pid", cmd.Process.Pid)
 		case <-time.After(500 * time.Millisecond):
 			fl.Warn("reader goroutine still exiting after 500ms", "pid", cmd.Process.Pid)
 		}
+	} else {
+		fl.Debug("reap skipped or no done channel", "reap", reap, "done_nil", done == nil)
 	}
 }

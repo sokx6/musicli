@@ -34,7 +34,7 @@ func findTestMP3(t *testing.T) string {
 
 func TestProbeDuration(t *testing.T) {
 	path := findTestMP3(t)
-	ms, err := probeDuration(path)
+	ms, err := probeDuration(path, log.Discard())
 	if err != nil {
 		t.Fatalf("probeDuration: %v", err)
 	}

@@ -1,9 +1,11 @@
 package library
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/locxl/musicli/internal/log"
 )
@@ -20,76 +22,100 @@ func NewScanner(lg *log.Logger) *Scanner {
 		log:  lg,
 		exts: make(map[string]bool),
 	}
-	for _, e := range []string{
+	extList := []string{
 		".mp3", ".flac", ".ogg", ".wav", ".m4a",
 		".aac", ".opus", ".aiff", ".wma",
-	} {
+	}
+	for _, e := range extList {
 		s.exts[e] = true
 	}
+	fl := lg.WithModule("library").WithFunc("NewScanner")
+	fl.Debug("scanner created", "extensions", strings.Join(extList, ","))
 	return s
 }
 
 // ScanPath scans a single file or a directory recursively.
 func (s *Scanner) ScanPath(path string) ([]*Track, error) {
+	fl := s.log.WithModule("library").WithFunc("ScanPath")
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("stat %q: %w", path, err)
 	}
 
+	fl.Debug("scan started", "path", path, "is_dir", info.IsDir())
+
 	var tracks []*Track
+	totalFiles := 0
 	if !info.IsDir() {
+		totalFiles++
 		if t, ok := s.processFile(path); ok {
 			tracks = append(tracks, t)
 		}
+		fl.Debug("scan completed", "path", path, "total_files", totalFiles, "total_tracks", len(tracks), "duration_ms", 0)
 		return tracks, nil
 	}
 
+	start := time.Now()
 	walkErr := filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
-			s.log.WithModule("library").Warn("walk error", "path", p, "error", err)
+			fl.Warn("walk error", "path", p, "err", err)
 			return nil // keep walking
 		}
 		if d.IsDir() {
 			return nil
 		}
+		totalFiles++
+		fl.Debug("file found", "path", p, "is_audio", s.isAudio(p))
 		if t, ok := s.processFile(p); ok {
 			tracks = append(tracks, t)
 		}
 		return nil
 	})
 	if walkErr != nil {
-		return tracks, walkErr
+		return tracks, fmt.Errorf("walk %q: %w", path, walkErr)
 	}
+	dur := time.Since(start)
+	fl.Debug("scan completed",
+		"path", path,
+		"total_files", totalFiles,
+		"total_tracks", len(tracks),
+		"duration_ms", dur.Milliseconds(),
+	)
 	return tracks, nil
 }
 
 // processFile attempts to read tags and duration for a single path.
 // It returns (track, true) for every audio file, even when tags fail.
 func (s *Scanner) processFile(path string) (*Track, bool) {
+	fl := s.log.WithModule("library").WithFunc("processFile")
 	if !s.isAudio(path) {
 		return nil, false
 	}
 
+	fl.Debug("processing", "path", path)
+
 	t, err := ReadTags(path, s.log)
 	if err != nil {
-		s.log.WithModule("library").Warn("tag read failed",
-			"path", path, "error", err)
+		fl.Warn("tag read failed", "path", path, "err", err)
+	} else {
+		fl.Debug("tags read", "path", path, "title", t.Title, "artist", t.Artist)
 	}
 
 	stat, err := os.Stat(path)
 	if err != nil {
-		s.log.WithModule("library").Warn("stat failed",
-			"path", path, "error", err)
+		fl.Warn("stat failed", "path", path, "err", err)
 	} else {
 		t.Size = stat.Size()
+		fl.Debug("stat ok", "path", path, "size", t.Size)
 	}
 
 	dur, err := probeDuration(path)
 	if err != nil {
-		s.log.WithModule("library").Warn("duration probe failed",
-			"path", path, "error", err)
+		fl.Warn("duration probe failed", "path", path, "err", err)
+	} else {
+		t.Duration = dur
+		fl.Debug("duration probed", "path", path, "duration_ms", t.Duration)
 	}
-	t.Duration = dur
 
 	return &t, true
 }

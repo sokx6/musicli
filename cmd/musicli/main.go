@@ -1,7 +1,8 @@
 // Command musicli is a TUI music player.
 //
 // Usage: musicli [path]
-//   path - a file or directory to scan for music (default: current dir)
+//
+//	path - a file or directory to scan for music (default: current dir)
 package main
 
 import (
@@ -42,19 +43,39 @@ func run() error {
 	}
 	defer logger.Close()
 
+	fl := logger.WithFunc("run")
+
 	for _, w := range warnings {
 		logger.Warn("config warning", "msg", w)
 	}
+
+	fl.Info("config loaded",
+		"audio.volume", cfg.Audio.Volume,
+		"audio.speed", cfg.Audio.Speed,
+		"playback.repeat", cfg.Playback.Repeat,
+		"playback.shuffle", cfg.Playback.Shuffle,
+		"library.sort_field", cfg.Library.SortField,
+		"library.sort_order", cfg.Library.SortOrder,
+		"library.group_by_album", cfg.Library.GroupByAlbum,
+		"lyrics.auto_fetch", cfg.Lyrics.AutoFetch,
+		"lyrics.sources", cfg.Lyrics.Sources,
+		"lyrics.save_dir", cfg.Lyrics.SaveDir,
+		"cover.show", cfg.Cover.Show,
+		"cover.protocol", cfg.Cover.Protocol,
+		"theme.mode", cfg.Theme.Mode,
+		"theme.name", cfg.Theme.Name,
+		"log.level", cfg.Log.Level,
+		"log.file", cfg.Log.File,
+		"config_path", xdg.ConfigPath(),
+		"data_dir", xdg.StateDir,
+		"cache_dir", xdg.CacheDir,
+	)
 
 	scanPath := "."
 	if len(os.Args) > 1 {
 		scanPath = os.Args[1]
 	}
-
-	logger.Info("musicli starting",
-		"config", xdg.ConfigPath(),
-		"scan_path", scanPath,
-	)
+	fl.Info("scan path resolved", "path", scanPath)
 
 	// Root context: cancelled on SIGINT/SIGTERM.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -67,20 +88,31 @@ func run() error {
 	}
 	eng.SetVolume(cfg.Audio.Volume)
 	eng.SetSpeed(cfg.Audio.Speed)
+	fl.Info("audio engine created", "volume", cfg.Audio.Volume, "speed", cfg.Audio.Speed)
 
 	// Library scanner.
 	sc := library.NewScanner(logger)
+	fl.Info("scanner created")
 
 	// Theme + UI.
 	t := theme.Default()
+	modeStr := "dark"
+	if t.Mode == theme.ModeLight {
+		modeStr = "light"
+	}
+	fl.Info("theme loaded", "mode", modeStr, "name", cfg.Theme.Name)
+
 	app := ui.New(eng, sc, t, logger)
+	fl.Info("ui app created")
 
 	// Start bubbletea. v2: alt-screen is implicit via View; mouse mode is
 	// set on the View returned by the model's View().
 	p := tea.NewProgram(app, tea.WithFPS(30))
+	fl.Info("bubbletea program created", "fps", 30)
 
 	// Kick off the library scan in a goroutine; deliver results via Send.
 	go func() {
+		fl.Info("scan goroutine launched", "path", scanPath)
 		tracks, err := sc.ScanPath(scanPath)
 		if err != nil {
 			p.Send(ui.ScanErrMsg{Err: err})
@@ -89,11 +121,15 @@ func run() error {
 		p.Send(ui.TracksLoadedMsg{Tracks: tracks})
 	}()
 
+	fl.Info("program Run starting")
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("run tui: %w", err)
 	}
+	fl.Info("program Run returned")
 
 	eng.Stop()
-	logger.Info("musicli exiting")
+	fl.Info("engine Stop called")
+
+	fl.Info("musicli exiting")
 	return nil
 }

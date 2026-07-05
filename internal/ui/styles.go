@@ -61,18 +61,19 @@ func NewStyles(t *theme.Theme) *Styles {
 }
 
 // newListStyles themes the list item delegate styles.
-// Backgrounds removed from Normal/Dimmed to avoid gray blocks filling the
-// row width; only Selected keeps a background for the highlight effect.
+// Uses fresh lipgloss.NewStyle() (not inheriting from NewDefaultItemStyles)
+// to avoid carrying default PaddingLeft/border that offset content right
+// and cause the double-border (││) artifact.
 func newListStyles(t *theme.Theme) list.DefaultItemStyles {
-	s := list.NewDefaultItemStyles(t.Mode == theme.ModeDark)
-	s.NormalTitle = s.NormalTitle.Foreground(t.Fg)
-	s.NormalDesc = s.NormalDesc.Foreground(t.Muted)
-	s.SelectedTitle = s.SelectedTitle.Foreground(t.Accent).Background(t.Subtle).Bold(true)
-	s.SelectedDesc = s.SelectedDesc.Foreground(t.Accent).Background(t.Subtle)
-	s.DimmedTitle = s.DimmedTitle.Foreground(t.Muted)
-	s.DimmedDesc = s.DimmedDesc.Foreground(t.Muted)
-	s.FilterMatch = s.FilterMatch.Foreground(t.Highlight)
-	return s
+	return list.DefaultItemStyles{
+		NormalTitle:   lipgloss.NewStyle().Foreground(t.Fg).PaddingLeft(1),
+		NormalDesc:    lipgloss.NewStyle().Foreground(t.Muted).PaddingLeft(1),
+		SelectedTitle: lipgloss.NewStyle().Foreground(t.Accent).Background(t.Subtle).Bold(true).PaddingLeft(1),
+		SelectedDesc:  lipgloss.NewStyle().Foreground(t.Accent).Background(t.Subtle).PaddingLeft(1),
+		DimmedTitle:   lipgloss.NewStyle().Foreground(t.Muted).PaddingLeft(1),
+		DimmedDesc:    lipgloss.NewStyle().Foreground(t.Muted).PaddingLeft(1),
+		FilterMatch:   lipgloss.NewStyle().Foreground(t.Highlight),
+	}
 }
 
 // newListComponentStyles themes the list's own chrome (title bar, status,
