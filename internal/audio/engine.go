@@ -85,6 +85,7 @@ type Engine struct {
 
 	// current playback goroutine control
 	ffmpegCmd   *exec.Cmd
+	player      *oto.Player // current oto player (for immediate pause/mute)
 	readerDone  chan struct{} // closed when reader goroutine exits
 	cancelReader context.CancelFunc
 }
@@ -116,25 +117,37 @@ func New(ctx context.Context, logger *log.Logger) (*Engine, error) {
 // stopped first (ffmpeg killed, player dropped, goroutine reaped).
 func (e *Engine) Play(path string) error {
 	fl := e.log.WithFunc("Play")
-	e.stopInternal(true) // reap old goroutine + kill ffmpeg
+	// Stop old playback without waiting for readerLoop to fully exit
+	// (fire-and-forget the cleanup; new playback starts immediately).
+	e.stopInternal(false)
 	e.setErr(nil)
-
-	dur, err := probeDuration(path)
-	if err != nil {
-		fl.Warn("ffprobe duration failed; using 0 (UI shows --:--)", "path", path, "err", fmt.Errorf("probeDuration: %w", err))
-		dur = 0
-	}
 
 	e.mu.Lock()
 	e.path = path
-	e.duration = dur
 	e.position = 0
 	e.playStartWall = time.Now()
 	e.pausedAccum = 0
 	e.state = StatePlaying
+	e.duration = 0 // reset; probe updates async
 	e.mu.Unlock()
 
-	fl.Info("play requested", "path", path, "duration_ms", dur)
+	// Probe duration in background — don't block playback start.
+	go func() {
+		dur, err := probeDuration(path)
+		if err != nil {
+			fl.Warn("ffprobe duration failed; using 0", "path", path, "err", fmt.Errorf("probeDuration: %w", err))
+			return
+		}
+		e.mu.Lock()
+		// Only update if this is still the current track.
+		if e.path == path {
+			e.duration = dur
+		}
+		e.mu.Unlock()
+		fl.Debug("duration probed", "path", path, "duration_ms", dur)
+	}()
+
+	fl.Info("play requested", "path", path)
 	return e.startFFmpeg(0)
 }
 
@@ -152,11 +165,11 @@ func (e *Engine) Pause() error {
 	e.state = StatePaused
 	e.mu.Unlock()
 
-	// Kill ffmpeg + close oto player so audio actually stops. Resume will
-	// respawn at e.position. Without this, ffmpeg keeps producing PCM and
-	// oto keeps playing — "pause" did nothing but flip a flag.
-	e.stopInternal(true)
-	fl.Debug("paused (ffmpeg+oto stopped)", "position_ms", e.position)
+	// Immediately mute+pause oto player (audio stops instantly) and SIGKILL
+	// ffmpeg. Don't wait for readerLoop — the mute makes the remaining oto
+	// buffer inaudible, and readerLoop cleans up in the background.
+	e.stopInternal(false)
+	fl.Debug("paused", "position_ms", e.position)
 	return nil
 }
 
@@ -410,6 +423,7 @@ func (e *Engine) startFFmpeg(offsetMs int) error {
 
 	e.mu.Lock()
 	e.ffmpegCmd = cmd
+	e.player = player
 	e.readerDone = done
 	e.cancelReader = cancel
 	e.mu.Unlock()
@@ -467,9 +481,11 @@ func (e *Engine) stopInternal(reap bool) {
 	fl := e.log.WithFunc("stopInternal")
 	e.mu.Lock()
 	cmd := e.ffmpegCmd
+	player := e.player
 	done := e.readerDone
 	cancel := e.cancelReader
 	e.ffmpegCmd = nil
+	e.player = nil
 	e.readerDone = nil
 	e.cancelReader = nil
 	e.mu.Unlock()
@@ -478,19 +494,26 @@ func (e *Engine) stopInternal(reap bool) {
 		return
 	}
 	fl.Debug("stopping ffmpeg", "pid", cmd.Process.Pid)
+	// Immediately mute + pause the oto player so buffered audio stops
+	// instantly (oto keeps playing its internal buffer after ffmpeg dies).
+	if player != nil {
+		player.SetVolume(0)
+		player.Pause()
+	}
 	if cancel != nil {
 		cancel()
 	}
-	// SIGKILL directly — fast track switching. ffmpeg writing to a full
-	// pipe can ignore SIGTERM; SIGKILL is immediate. Process death closes
-	// stdout → io.Copy returns → pw.Close() → done channel fires.
+	// SIGKILL — immediate process death. stdout closes → io.Copy returns
+	// → pw.Close() → oto reader EOF → readerLoop exits.
 	_ = cmd.Process.Signal(killSignal)
+	// Don't wait for readerLoop to fully exit — it will finish in the
+	// background. The new playback can start immediately. oto's mux won't
+	// block on the old player because pw.Close() makes its reader EOF.
 	if reap && done != nil {
 		select {
 		case <-done:
-			fl.Debug("reader goroutine exited cleanly", "pid", cmd.Process.Pid)
-		case <-time.After(1 * time.Second):
-			fl.Warn("reader goroutine timed out after SIGKILL", "pid", cmd.Process.Pid)
+		case <-time.After(500 * time.Millisecond):
+			fl.Warn("reader goroutine still exiting after 500ms", "pid", cmd.Process.Pid)
 		}
 	}
 }

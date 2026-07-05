@@ -33,17 +33,18 @@ type Styles struct {
 
 // NewStyles builds styles from a theme.
 func NewStyles(t *theme.Theme) *Styles {
+	borderColor := t.Muted
 	return &Styles{
 		theme: t,
 		doc:   lipgloss.NewStyle().Foreground(t.Fg),
 		sidebar: lipgloss.NewStyle().
 			BorderRight(true).
-			BorderForeground(t.Subtle),
+			BorderForeground(borderColor),
 		main: lipgloss.NewStyle().Padding(0, 1),
 		player: lipgloss.NewStyle().
 			Background(t.Subtle).
 			BorderTop(true).
-			BorderForeground(t.Subtle).
+			BorderForeground(borderColor).
 			Padding(0, 1),
 		title:  lipgloss.NewStyle().Foreground(t.Accent).Bold(true),
 		muted:  lipgloss.NewStyle().Foreground(t.Muted),
@@ -68,20 +69,20 @@ func newListStyles(t *theme.Theme) list.DefaultItemStyles {
 }
 
 // newListComponentStyles themes the list's own chrome (title bar, status,
-// pagination, filter) — removing default backgrounds that cause gray blocks.
+// pagination, filter) — using fresh Styles to avoid inherited backgrounds.
 func newListComponentStyles(t *theme.Theme) list.Styles {
 	s := list.DefaultStyles(t.Mode == theme.ModeDark)
-	// Strip all backgrounds from chrome — let terminal native bg show.
-	s.TitleBar = s.TitleBar.Foreground(t.Accent).Bold(true)
-	s.Title = s.Title.Foreground(t.Accent).Bold(true)
-	s.Spinner = s.Spinner.Foreground(t.Accent)
-	s.StatusBar = s.StatusBar.Foreground(t.Muted)
-	s.StatusEmpty = s.StatusEmpty.Foreground(t.Muted)
-	s.StatusBarActiveFilter = s.StatusBarActiveFilter.Foreground(t.Highlight)
-	s.StatusBarFilterCount = s.StatusBarFilterCount.Foreground(t.Muted)
-	s.NoItems = s.NoItems.Foreground(t.Muted)
-	s.PaginationStyle = s.PaginationStyle.Foreground(t.Muted)
-	s.HelpStyle = s.HelpStyle.Foreground(t.Muted)
+	// Overwrite with fresh styles (no Background) to kill default colored bars.
+	s.TitleBar = lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
+	s.Title = lipgloss.NewStyle().Foreground(t.Accent).Bold(true).Padding(0, 0, 0, 1)
+	s.Spinner = lipgloss.NewStyle().Foreground(t.Accent)
+	s.StatusBar = lipgloss.NewStyle().Foreground(t.Muted)
+	s.StatusEmpty = lipgloss.NewStyle().Foreground(t.Muted)
+	s.StatusBarActiveFilter = lipgloss.NewStyle().Foreground(t.Highlight)
+	s.StatusBarFilterCount = lipgloss.NewStyle().Foreground(t.Muted)
+	s.NoItems = lipgloss.NewStyle().Foreground(t.Muted)
+	s.PaginationStyle = lipgloss.NewStyle().Foreground(t.Muted)
+	s.HelpStyle = lipgloss.NewStyle().Foreground(t.Muted)
 	return s
 }
 
