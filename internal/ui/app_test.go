@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/locxl/musicli/internal/library"
 	"github.com/locxl/musicli/internal/log"
+	"github.com/locxl/musicli/internal/lyrics"
 	"github.com/locxl/musicli/internal/theme"
 )
 
@@ -163,6 +164,29 @@ func TestRenderLyricsPaneSeparatesTranslationPairsWithBlankLine(t *testing.T) {
 	currentLine := app.renderCurrentLyricLine(app.lyric.Lines[0], 80)
 	if strings.Contains(currentLine, "Translation one") {
 		t.Fatalf("current highlighted line includes translation: %q", currentLine)
+	}
+}
+
+func TestRenderCurrentLyricLineKeepsWideTextStable(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.pos = 2500
+	line := lyrics.Line{
+		Text: "ツギハギだらけの君との時間も",
+		Words: []lyrics.Word{
+			{Text: "ツギハギだらけの", StartMs: 1000, EndMs: 2000},
+			{Text: "君と", StartMs: 2000, EndMs: 3000},
+			{Text: "の時間も", StartMs: 3000, EndMs: 4000},
+		},
+		Translation: "patched time",
+	}
+
+	rendered := app.renderCurrentLyricLine(line, 80)
+	plain := stripANSI(rendered)
+	if plain != line.Text {
+		t.Fatalf("rendered text shifted or dropped glyphs: %q", plain)
+	}
+	if strings.Contains(plain, "patched time") {
+		t.Fatalf("current line should not include translation: %q", plain)
 	}
 }
 

@@ -834,8 +834,9 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 	}
 
 	var b strings.Builder
+	usedWidth := 0
 	for _, word := range line.Words {
-		text := truncateCellText(word.Text, width-lipgloss.Width(b.String()))
+		text := truncateCellText(word.Text, width-usedWidth)
 		if text == "" {
 			break
 		}
@@ -844,14 +845,10 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 		} else {
 			b.WriteString(a.styles.muted.Render(text))
 		}
+		usedWidth += lipgloss.Width(text)
 		if strings.HasSuffix(text, "…") {
 			break
 		}
-	}
-	if line.Translation != "" && lipgloss.Width(b.String()) < width {
-		sep := " / "
-		remaining := width - lipgloss.Width(b.String())
-		b.WriteString(a.styles.muted.Render(truncateCellText(sep+line.Translation, remaining)))
 	}
 	return b.String()
 }
