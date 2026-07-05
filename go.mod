@@ -8,6 +8,7 @@ require (
 )
 
 require (
+	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8 // indirect
 	github.com/ebitengine/purego v0.9.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
 )
