@@ -1,0 +1,38 @@
+# musicli default configuration.
+# This file is embedded into the binary and written to the user config
+# directory on first run.
+
+[audio]
+volume = 80          # 0-100
+speed = 1.0          # 0.5-2.0 (playback speed, pitch preserved via ffmpeg atempo)
+
+[playback]
+repeat = "list"      # none | one | list
+shuffle = false
+
+[library]
+sort_field = "title" # title | artist | album | size | year
+sort_order = "asc"   # asc | desc
+group_by_album = true
+
+[lyrics]
+auto_fetch = false   # auto-crawl lyrics when local file missing (phase 12)
+sources = ["lrclib", "qq", "netease", "kugou"]
+save_dir = ""        # empty = ~/.cache/musicli/lyrics
+
+[cover]
+show = true
+protocol = "auto"    # auto | kitty | sixel | iterm | halfblock
+
+[theme]
+mode = "auto"        # auto | dark | light
+name = "default"
+
+[keybindings]
+# Empty = use built-in defaults. Override individual keys here, e.g.:
+# play_pause = ["space", "p"]
+# next = ["n", "l"]
+
+[log]
+level = "info"       # debug | info | warning | error
+file = ""            # empty = ~/.local/state/musicli/musicli.log

@@ -17,6 +17,9 @@ coverage.*
 *.coverprofile
 profile.cov
 
+# build output
+bin/
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
@@ -29,6 +32,17 @@ go.work.sum
 
 # deepwork session state (orchestrator progress, not source)
 .slim/deepwork/
+
+# test audio files (local test data, not source)
+*.mp3
+*.flac
+*.ogg
+*.wav
+*.m4a
+*.aac
+*.opus
+*.aiff
+*.wma
 
 # Editor/IDE
 # .idea/
