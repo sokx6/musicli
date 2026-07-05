@@ -1,8 +1,7 @@
 // Command musicli is a TUI music player.
 //
-// This is the entry point. Phase 0 wires up: config load, logger, root
-// context with signal handling, and deferred cleanup. The TUI and audio
-// engine are added in later phases.
+// Usage: musicli [path]
+//   path - a file or directory to scan for music (default: current dir)
 package main
 
 import (
@@ -12,8 +11,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/locxl/musicli/internal/audio"
 	"github.com/locxl/musicli/internal/config"
+	"github.com/locxl/musicli/internal/library"
 	"github.com/locxl/musicli/internal/log"
+	"github.com/locxl/musicli/internal/theme"
+	"github.com/locxl/musicli/internal/ui"
 )
 
 func main() {
@@ -26,13 +31,11 @@ func main() {
 func run() error {
 	xdg := config.DefaultDirs()
 
-	// Load config (writes default on first run).
 	cfg, warnings, err := config.Load(xdg.ConfigPath())
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	// Logger: truncate-on-start per spec.
 	logger, err := log.New(cfg.Log.Level, cfg.Log.File)
 	if err != nil {
 		return fmt.Errorf("init logger: %w", err)
@@ -42,22 +45,55 @@ func run() error {
 	for _, w := range warnings {
 		logger.Warn("config warning", "msg", w)
 	}
+
+	scanPath := "."
+	if len(os.Args) > 1 {
+		scanPath = os.Args[1]
+	}
+
 	logger.Info("musicli starting",
 		"config", xdg.ConfigPath(),
-		"state", xdg.StateDir,
-		"cache", xdg.CacheDir,
+		"scan_path", scanPath,
 	)
 
-	// Root context: cancelled on SIGINT/SIGTERM. Child packages receive it
-	// to shut down goroutines (ffmpeg reader, theme watcher, etc.).
+	// Root context: cancelled on SIGINT/SIGTERM.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// TODO(phase 1+): init audio engine with ctx, init UI, run bubbletea.
-	_ = ctx
-	_ = cfg
+	// Audio engine (oto context created once, reused).
+	eng, err := audio.New(ctx, logger)
+	if err != nil {
+		return fmt.Errorf("init audio: %w", err)
+	}
+	eng.SetVolume(cfg.Audio.Volume)
+	eng.SetSpeed(cfg.Audio.Speed)
 
-	// Phase 0 placeholder: exit cleanly.
-	logger.Info("musicli exiting (phase 0 placeholder)")
+	// Library scanner.
+	sc := library.NewScanner(logger)
+
+	// Theme + UI.
+	t := theme.Default()
+	app := ui.New(eng, sc, t, logger)
+
+	// Start bubbletea. v2: alt-screen is implicit via View; mouse mode is
+	// set on the View returned by the model's View().
+	p := tea.NewProgram(app, tea.WithFPS(30))
+
+	// Kick off the library scan in a goroutine; deliver results via Send.
+	go func() {
+		tracks, err := sc.ScanPath(scanPath)
+		if err != nil {
+			p.Send(ui.ScanErrMsg{Err: err})
+			return
+		}
+		p.Send(ui.TracksLoadedMsg{Tracks: tracks})
+	}()
+
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("run tui: %w", err)
+	}
+
+	eng.Stop()
+	logger.Info("musicli exiting")
 	return nil
 }
