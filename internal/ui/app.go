@@ -57,7 +57,8 @@ type App struct {
 
 	width, height int
 
-	trackList list.Model
+	trackList  list.Model
+	delegate   list.DefaultDelegate
 	progress  progress.Model
 
 	tracks  []*library.Track
@@ -77,8 +78,9 @@ type App struct {
 func New(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *log.Logger) *App {
 	keys := defaultKeyMap()
 	styles := NewStyles(t)
+	delegate := newListDelegate(t)
 
-	trackList := list.New([]list.Item{}, newListDelegate(t), 40, 20)
+	trackList := list.New([]list.Item{}, delegate, 40, 20)
 	trackList.Title = "Tracks"
 	trackList.Styles = newListComponentStyles(t)
 	trackList.SetShowHelp(false)
@@ -97,6 +99,7 @@ func New(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *log.Logger)
 		engine:    eng,
 		scanner:   sc,
 		trackList: trackList,
+		delegate:  delegate,
 		progress:  pbar,
 		current:   -1,
 		volume:    80,
@@ -454,6 +457,18 @@ func (a *App) resizeComponents() {
 	}
 	a.trackList.SetWidth(listW)
 	a.trackList.SetHeight(bodyH)
+
+	// Force item styles to fill the full list width so there's no empty
+	// space on the right of each row (bubbles/list Render doesn't set Width
+	// on the styled output, so rows only fill to text length without this).
+	s := newListStyles(a.theme)
+	s.NormalTitle = s.NormalTitle.Width(listW)
+	s.NormalDesc = s.NormalDesc.Width(listW)
+	s.SelectedTitle = s.SelectedTitle.Width(listW)
+	s.SelectedDesc = s.SelectedDesc.Width(listW)
+	s.DimmedTitle = s.DimmedTitle.Width(listW)
+	s.DimmedDesc = s.DimmedDesc.Width(listW)
+	a.delegate.Styles = s
 
 	progressW := a.width - 2
 	if progressW < 1 {
