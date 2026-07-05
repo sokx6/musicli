@@ -833,22 +833,49 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 		return a.styles.accent.Render(text)
 	}
 
-	var b strings.Builder
-	usedWidth := 0
-	for _, word := range line.Words {
-		text := truncateCellText(word.Text, width-usedWidth)
-		if text == "" {
-			break
-		}
+	current := -1
+	for i, word := range line.Words {
 		if word.StartMs <= a.pos && a.pos < word.EndMs {
-			b.WriteString(a.styles.accent.Render(text))
-		} else {
-			b.WriteString(a.styles.muted.Render(text))
-		}
-		usedWidth += lipgloss.Width(text)
-		if strings.HasSuffix(text, "…") {
+			current = i
 			break
 		}
+	}
+	if current < 0 {
+		return a.styles.muted.Render(truncateCellText(line.Text, width))
+	}
+
+	prefix := wordsText(line.Words[:current])
+	active := line.Words[current].Text
+	suffix := wordsText(line.Words[current+1:])
+
+	var b strings.Builder
+	remaining := width
+	writeRun := func(style lipgloss.Style, text string) bool {
+		if remaining <= 0 || text == "" {
+			return false
+		}
+		clipped := truncateCellText(text, remaining)
+		if clipped == "" {
+			return false
+		}
+		b.WriteString(style.Render(clipped))
+		remaining -= lipgloss.Width(clipped)
+		return strings.HasSuffix(clipped, "…")
+	}
+	if writeRun(a.styles.muted, prefix) {
+		return b.String()
+	}
+	if writeRun(a.styles.accent, active) {
+		return b.String()
+	}
+	writeRun(a.styles.muted, suffix)
+	return b.String()
+}
+
+func wordsText(words []lyrics.Word) string {
+	var b strings.Builder
+	for _, word := range words {
+		b.WriteString(word.Text)
 	}
 	return b.String()
 }

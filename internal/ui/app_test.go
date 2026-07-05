@@ -181,15 +181,57 @@ func TestRenderLyricsPaneSeparatesTranslationPairsWithBlankLine(t *testing.T) {
 	}
 }
 
+func TestRenderLyricsPaneDoesNotHighlightTranslationAtPairBoundary(t *testing.T) {
+	dir := t.TempDir()
+	audio := filepath.Join(dir, "song.mp3")
+	if err := os.WriteFile(audio, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "song.lrc"), []byte("[00:01.00]Original one\nTranslation one\n[00:03.00]Original two\nTranslation two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	m, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	app = m.(*App)
+	m, _ = app.Update(TracksLoadedMsg{Tracks: []*library.Track{{Path: audio, Title: "Song"}}})
+	app = m.(*App)
+
+	app.current = 0
+	app.pos = 3000
+	app.loadCurrentLyrics()
+
+	rawLines := strings.Split(app.renderLyricsPane(80, 8), "\n")
+	for _, line := range rawLines {
+		if !strings.Contains(line, "Translation one") && !strings.Contains(line, "Translation two") {
+			continue
+		}
+		if strings.Contains(line, "\x1b[1;") || strings.Contains(line, "\x1b[1m") {
+			t.Fatalf("translation row uses highlighted style at pair boundary: %q", line)
+		}
+	}
+}
+
 func TestRenderCurrentLyricLineKeepsWideTextStable(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	app.pos = 2500
 	line := lyrics.Line{
 		Text: "ツギハギだらけの君との時間も",
 		Words: []lyrics.Word{
-			{Text: "ツギハギだらけの", StartMs: 1000, EndMs: 2000},
-			{Text: "君と", StartMs: 2000, EndMs: 3000},
-			{Text: "の時間も", StartMs: 3000, EndMs: 4000},
+			{Text: "ツ", StartMs: 1000, EndMs: 1100},
+			{Text: "ギ", StartMs: 1100, EndMs: 1200},
+			{Text: "ハ", StartMs: 1200, EndMs: 1300},
+			{Text: "ギ", StartMs: 1300, EndMs: 1400},
+			{Text: "だ", StartMs: 1400, EndMs: 1500},
+			{Text: "ら", StartMs: 1500, EndMs: 1600},
+			{Text: "け", StartMs: 1600, EndMs: 1700},
+			{Text: "の", StartMs: 1700, EndMs: 1800},
+			{Text: "君", StartMs: 1800, EndMs: 2400},
+			{Text: "と", StartMs: 2400, EndMs: 3000},
+			{Text: "の", StartMs: 3000, EndMs: 3100},
+			{Text: "時", StartMs: 3100, EndMs: 3200},
+			{Text: "間", StartMs: 3200, EndMs: 3300},
+			{Text: "も", StartMs: 3300, EndMs: 4000},
 		},
 		Translation: "patched time",
 	}
@@ -204,6 +246,9 @@ func TestRenderCurrentLyricLineKeepsWideTextStable(t *testing.T) {
 	}
 	if strings.Contains(rendered, "\x1b[1;") || strings.Contains(rendered, "\x1b[1m") {
 		t.Fatalf("word highlight should not use bold SGR because it can shift wide glyphs: %q", rendered)
+	}
+	if got := strings.Count(rendered, "\x1b["); got > 6 {
+		t.Fatalf("word highlight should render at most three styled runs, got %d ANSI sequences: %q", got/2, rendered)
 	}
 }
 
