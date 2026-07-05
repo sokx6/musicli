@@ -833,7 +833,9 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 
 	if len(line.Words) == 0 {
 		text := truncateCellText(line.Text, width)
-		return padCellText(accent.Styled(text), width)
+		rendered := padCellText(accent.Styled(text), width)
+		a.logLyricRender(line, width, -1, rendered)
+		return rendered
 	}
 
 	current := -1
@@ -844,7 +846,9 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 		}
 	}
 	if current < 0 {
-		return padCellText(muted.Styled(truncateCellText(line.Text, width)), width)
+		rendered := padCellText(muted.Styled(truncateCellText(line.Text, width)), width)
+		a.logLyricRender(line, width, current, rendered)
+		return rendered
 	}
 
 	prefix := wordsText(line.Words[:current])
@@ -868,15 +872,43 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 	}
 	if writeRun(muted, prefix) {
 		b.WriteString(ansi.ResetStyle)
-		return padCellText(b.String(), width)
+		rendered := padCellText(b.String(), width)
+		a.logLyricRender(line, width, current, rendered)
+		return rendered
 	}
 	if writeRun(accent, active) {
 		b.WriteString(ansi.ResetStyle)
-		return padCellText(b.String(), width)
+		rendered := padCellText(b.String(), width)
+		a.logLyricRender(line, width, current, rendered)
+		return rendered
 	}
 	writeRun(muted, suffix)
 	b.WriteString(ansi.ResetStyle)
-	return padCellText(b.String(), width)
+	rendered := padCellText(b.String(), width)
+	a.logLyricRender(line, width, current, rendered)
+	return rendered
+}
+
+func (a *App) logLyricRender(line lyrics.Line, width int, current int, rendered string) {
+	currentText := ""
+	if current >= 0 && current < len(line.Words) {
+		currentText = line.Words[current].Text
+	}
+	plain := ansi.Strip(rendered)
+	a.log.WithFunc("renderCurrentLyricLine").Debug("lyric render",
+		"pos", a.pos,
+		"line_start", line.StartMs,
+		"line_end", line.EndMs,
+		"width", width,
+		"current_word", current,
+		"current_text", currentText,
+		"line_text", line.Text,
+		"plain", plain,
+		"plain_trimmed", strings.TrimRight(plain, " "),
+		"plain_width", ansi.StringWidth(plain),
+		"rendered_width", ansi.StringWidth(rendered),
+		"rendered", rendered,
+	)
 }
 
 func wordsText(words []lyrics.Word) string {
