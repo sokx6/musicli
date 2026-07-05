@@ -1,0 +1,3 @@
+# Allow OpenCode to read deepwork progress files (ignored by other tooling)
+!.slim/deepwork/
+!.slim/deepwork/**

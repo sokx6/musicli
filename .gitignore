@@ -27,6 +27,9 @@ go.work.sum
 # env file
 .env
 
+# deepwork session state (orchestrator progress, not source)
+.slim/deepwork/
+
 # Editor/IDE
 # .idea/
 # .vscode/
