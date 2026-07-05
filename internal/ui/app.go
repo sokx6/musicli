@@ -445,22 +445,21 @@ func (a *App) resizeComponents() {
 		return
 	}
 	leftW := a.leftPaneWidth()
-	rightW := a.width - leftW
+	rightW := a.width - leftW // leftW includes its own border column
 	bodyH := a.bodyHeight()
 
 	listW := rightW
-	if leftW > 0 {
-		listW-- // vertical divider column
-	}
 	if listW < 1 {
 		listW = 1
 	}
 	a.trackList.SetWidth(listW)
 	a.trackList.SetHeight(bodyH)
+	a.log.Debug("layout sizes",
+		"term_w", a.width, "term_h", a.height,
+		"leftW", leftW, "rightW", rightW, "listW", listW, "bodyH", bodyH)
 
 	// Force item styles to fill the full list width so there's no empty
-	// space on the right of each row (bubbles/list Render doesn't set Width
-	// on the styled output, so rows only fill to text length without this).
+	// space on the right of each row.
 	s := newListStyles(a.theme)
 	s.NormalTitle = s.NormalTitle.Width(listW)
 	s.NormalDesc = s.NormalDesc.Width(listW)
@@ -490,8 +489,8 @@ func (a *App) View() tea.View {
 	topBar := a.renderTopBar()
 
 	rightPaneW := rightW
-	if leftW > 0 {
-		rightPaneW-- // vertical divider column
+	if rightPaneW < 1 {
+		rightPaneW = 1
 	}
 	rightPane := a.styles.rightPane.
 		Width(rightPaneW).
