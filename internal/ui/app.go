@@ -258,7 +258,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		a.pollEngine()
-		return a, tickCmd()
+		return a, tea.Batch(
+			tickCmd(),
+			func() tea.Msg { return tea.ClearScreen() },
+		)
 
 	case errMsg:
 		fl := a.log.WithFunc("Update")
@@ -851,40 +854,18 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 		return rendered
 	}
 
-	prefix := wordsText(line.Words[:current])
-	active := line.Words[current].Text
-	suffix := wordsText(line.Words[current+1:])
+	// Two segments: played (muted) + unplayed (accent).
+	// Pre-compute padding from plain text so layout never shifts.
+	played := wordsText(line.Words[:current+1])
+	unplayed := wordsText(line.Words[current+1:])
+	plainW := ansi.StringWidth(played + unplayed)
+	pad := width - plainW
+	if pad < 0 {
+		pad = 0
+	}
+	padding := strings.Repeat(" ", pad)
 
-	var b strings.Builder
-	remaining := width
-	writeRun := func(style ansi.Style, text string) bool {
-		if remaining <= 0 || text == "" {
-			return false
-		}
-		clipped := truncateCellText(text, remaining)
-		if clipped == "" {
-			return false
-		}
-		b.WriteString(style.String())
-		b.WriteString(clipped)
-		remaining -= ansi.StringWidth(clipped)
-		return strings.HasSuffix(clipped, "…")
-	}
-	if writeRun(muted, prefix) {
-		b.WriteString(ansi.ResetStyle)
-		rendered := padCellText(b.String(), width)
-		a.logLyricRender(line, width, current, rendered)
-		return rendered
-	}
-	if writeRun(accent, active) {
-		b.WriteString(ansi.ResetStyle)
-		rendered := padCellText(b.String(), width)
-		a.logLyricRender(line, width, current, rendered)
-		return rendered
-	}
-	writeRun(muted, suffix)
-	b.WriteString(ansi.ResetStyle)
-	rendered := padCellText(b.String(), width)
+	rendered := accent.Styled(played) + muted.Styled(unplayed) + padding
 	a.logLyricRender(line, width, current, rendered)
 	return rendered
 }
