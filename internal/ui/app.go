@@ -554,6 +554,9 @@ func (a *App) resizeComponents() {
 	s.DimmedTitle = s.DimmedTitle.Width(listW)
 	s.DimmedDesc = s.DimmedDesc.Width(listW)
 	a.delegate.Styles = s
+	// The list stores its own copy of the delegate; updating a.delegate alone
+	// leaves the rendered list using the old narrow styles.
+	a.trackList.SetDelegate(a.delegate)
 
 	progressW := a.width - 2
 	if progressW < 1 {
