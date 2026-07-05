@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/progress"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/locxl/musicli/internal/audio"
 	"github.com/locxl/musicli/internal/library"
@@ -46,16 +47,24 @@ func (i trackItem) Description() string {
 }
 func (i trackItem) FilterValue() string { return i.track.Title + " " + i.track.Artist }
 
+// Options configures UI layout behavior.
+type Options struct {
+	// TrackListMaxWidth caps the content-fit track list width. Zero means no cap.
+	TrackListMaxWidth int
+}
+
 // App is the top-level bubbletea model.
 type App struct {
 	log     *log.Logger
 	theme   *theme.Theme
 	styles  *Styles
 	keys    keyMap
+	options Options
 	engine  *audio.Engine
 	scanner *library.Scanner
 
 	width, height int
+	leftW         int
 
 	trackList list.Model
 	delegate  list.DefaultDelegate
@@ -77,6 +86,11 @@ type App struct {
 
 // New creates the App model. Engine and scanner must be initialised.
 func New(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *log.Logger) *App {
+	return NewWithOptions(eng, sc, t, lg, Options{})
+}
+
+// NewWithOptions creates the App model with explicit UI options.
+func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *log.Logger, opts Options) *App {
 	fl := lg.WithModule("ui").WithFunc("New")
 	keys := defaultKeyMap()
 	styles := NewStyles(t)
@@ -105,6 +119,7 @@ func New(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *log.Logger)
 		theme:     t,
 		styles:    styles,
 		keys:      keys,
+		options:   opts,
 		engine:    eng,
 		scanner:   sc,
 		trackList: trackList,
@@ -223,6 +238,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.trackList.SetItems(items)
 		a.trackList.Title = fmt.Sprintf("Tracks (%d)", len(msg.Tracks))
+		a.resizeComponents()
 		a.log.Info("library loaded", "count", len(msg.Tracks))
 		return a, nil
 
@@ -367,9 +383,6 @@ func (a *App) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	// Click in the right pane list area → select; play only if selecting a
 	// different track than the current one.
 	listStartX := leftW
-	if leftW > 0 {
-		listStartX++ // account for vertical divider
-	}
 	inListArea := (leftW == 0 || msg.X >= listStartX) &&
 		msg.Y >= topBarTotalH && msg.Y < a.height-playerBarTotalH
 	if inListArea {
@@ -505,6 +518,13 @@ func (a *App) seekTo(target int) tea.Cmd {
 // --- layout ---
 
 func (a *App) leftPaneWidth() int {
+	if a.leftW > 0 {
+		return a.leftW
+	}
+	return a.baseLeftPaneWidth()
+}
+
+func (a *App) baseLeftPaneWidth() int {
 	if a.width < 80 {
 		return 0
 	}
@@ -513,6 +533,61 @@ func (a *App) leftPaneWidth() int {
 		w = 1
 	}
 	return w
+}
+
+func (a *App) trackListContentWidth() int {
+	const minListWidth = 1
+
+	width := ansi.StringWidth(a.trackList.Title) + 5 // title left pad + status gap.
+	for _, tr := range a.tracks {
+		item := trackItem{track: tr}
+		titleW := ansi.StringWidth(item.Title()) + 1
+		if titleW > width {
+			width = titleW
+		}
+		if desc := item.Description(); desc != "" {
+			descW := ansi.StringWidth(desc) + 1
+			if descW > width {
+				width = descW
+			}
+		}
+	}
+	if width < minListWidth {
+		return minListWidth
+	}
+	return width
+}
+
+func (a *App) layoutWidths() (leftW, listW int) {
+	if a.width < 1 {
+		return 0, 1
+	}
+	baseLeftW := a.baseLeftPaneWidth()
+	availableListW := a.width - baseLeftW
+	if availableListW < 1 {
+		availableListW = 1
+	}
+
+	listW = a.trackListContentWidth()
+	if maxW := a.options.TrackListMaxWidth; maxW > 0 && listW > maxW {
+		listW = maxW
+	}
+	if listW > availableListW {
+		listW = availableListW
+	}
+	if listW < 1 {
+		listW = 1
+	}
+
+	leftW = a.width - listW
+	if a.width < 80 {
+		leftW = 0
+		listW = a.width
+		if listW < 1 {
+			listW = 1
+		}
+	}
+	return leftW, listW
 }
 
 func (a *App) bodyHeight() int {
@@ -530,19 +605,15 @@ func (a *App) resizeComponents() {
 	if a.width == 0 || a.height == 0 {
 		return
 	}
-	leftW := a.leftPaneWidth()
-	rightW := a.width - leftW // leftW includes its own border column
+	leftW, listW := a.layoutWidths()
+	a.leftW = leftW
 	bodyH := a.bodyHeight()
 
-	listW := rightW
-	if listW < 1 {
-		listW = 1
-	}
 	a.trackList.SetWidth(listW)
 	a.trackList.SetHeight(bodyH)
 	fl.Debug("layout sizes",
 		"term_w", a.width, "term_h", a.height,
-		"leftW", leftW, "rightW", rightW, "listW", listW, "bodyH", bodyH)
+		"leftW", leftW, "listW", listW, "bodyH", bodyH)
 
 	// Force item styles to fill the full list width so there's no empty
 	// space on the right of each row.
@@ -574,7 +645,10 @@ func (a *App) View() tea.View {
 
 	bodyH := a.bodyHeight()
 	leftW := a.leftPaneWidth()
-	rightW := a.width - leftW
+	rightW := a.trackList.Width()
+	if rightW < 1 {
+		rightW = a.width - leftW
+	}
 
 	topBar := a.renderTopBar()
 

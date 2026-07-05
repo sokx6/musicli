@@ -15,14 +15,15 @@ var defaultConfigTOML string
 
 // Config is the full musicli configuration loaded from TOML.
 type Config struct {
-	Audio      Audio      `toml:"audio"`
-	Playback   Playback   `toml:"playback"`
-	Library    Library    `toml:"library"`
-	Lyrics     Lyrics     `toml:"lyrics"`
-	Cover      Cover      `toml:"cover"`
-	Theme      Theme      `toml:"theme"`
+	Audio       Audio       `toml:"audio"`
+	Playback    Playback    `toml:"playback"`
+	Library     Library     `toml:"library"`
+	Lyrics      Lyrics      `toml:"lyrics"`
+	Cover       Cover       `toml:"cover"`
+	Theme       Theme       `toml:"theme"`
+	UI          UI          `toml:"ui"`
 	Keybindings Keybindings `toml:"keybindings"`
-	Log        Log        `toml:"log"`
+	Log         Log         `toml:"log"`
 
 	// Dirs is not in TOML; it is resolved at load time.
 	Dirs Dirs `toml:"-"`
@@ -58,6 +59,10 @@ type Cover struct {
 type Theme struct {
 	Mode string `toml:"mode"`
 	Name string `toml:"name"`
+}
+
+type UI struct {
+	TrackListMaxWidth int `toml:"track_list_max_width"`
 }
 
 type Keybindings struct {
@@ -157,6 +162,10 @@ func (c *Config) applyDefaults(warnings *[]string) {
 	default:
 		*warnings = append(*warnings, fmt.Sprintf("log.level %q invalid, using info", c.Log.Level))
 		c.Log.Level = "info"
+	}
+	if c.UI.TrackListMaxWidth < 0 {
+		*warnings = append(*warnings, fmt.Sprintf("ui.track_list_max_width %d out of range, using 0", c.UI.TrackListMaxWidth))
+		c.UI.TrackListMaxWidth = 0
 	}
 }
 

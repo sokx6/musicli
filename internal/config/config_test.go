@@ -20,6 +20,9 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	if c.Log.Level != "debug" {
 		t.Errorf("default log level = %q, want debug", c.Log.Level)
 	}
+	if c.UI.TrackListMaxWidth != 80 {
+		t.Errorf("default track_list_max_width = %d, want 80", c.UI.TrackListMaxWidth)
+	}
 }
 
 func TestLoadCreatesDefaultOnFirstRun(t *testing.T) {
@@ -52,6 +55,8 @@ speed = 5.0
 repeat = "bogus"
 [library]
 sort_field = "nonsense"
+[ui]
+track_list_max_width = -1
 [log]
 level = "wat"
 `
@@ -77,8 +82,11 @@ level = "wat"
 	if c.Log.Level != "info" {
 		t.Errorf("clamped log level = %q, want info", c.Log.Level)
 	}
-	if len(warnings) < 5 {
-		t.Errorf("expected >=5 warnings, got %d: %v", len(warnings), warnings)
+	if c.UI.TrackListMaxWidth != 0 {
+		t.Errorf("clamped track_list_max_width = %d, want 0", c.UI.TrackListMaxWidth)
+	}
+	if len(warnings) < 6 {
+		t.Errorf("expected >=6 warnings, got %d: %v", len(warnings), warnings)
 	}
 }
 

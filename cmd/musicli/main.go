@@ -64,6 +64,7 @@ func run() error {
 		"cover.protocol", cfg.Cover.Protocol,
 		"theme.mode", cfg.Theme.Mode,
 		"theme.name", cfg.Theme.Name,
+		"ui.track_list_max_width", cfg.UI.TrackListMaxWidth,
 		"log.level", cfg.Log.Level,
 		"log.file", cfg.Log.File,
 		"config_path", xdg.ConfigPath(),
@@ -102,7 +103,9 @@ func run() error {
 	}
 	fl.Info("theme loaded", "mode", modeStr, "name", cfg.Theme.Name)
 
-	app := ui.New(eng, sc, t, logger)
+	app := ui.NewWithOptions(eng, sc, t, logger, ui.Options{
+		TrackListMaxWidth: cfg.UI.TrackListMaxWidth,
+	})
 	fl.Info("ui app created")
 
 	// Start bubbletea. v2: alt-screen is implicit via View; mouse mode is
