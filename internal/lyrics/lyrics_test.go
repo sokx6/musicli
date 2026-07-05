@@ -76,6 +76,28 @@ func TestSPLParserParsesWordTimingAndDelayMarkers(t *testing.T) {
 	}
 }
 
+func TestSPLParserMergesSameStartTimedTranslation(t *testing.T) {
+	text := `[00:01.399]ツ[00:01.589]ギ[00:01.739]ハ[00:01.879]ギ[00:02.129]だ[00:02.309]ら[00:02.999]け[00:03.199]の[00:03.949]君[00:04.788]と[00:04.948]の[00:05.158]時[00:05.508]間[00:05.798]も[00:06.368]
+[00:01.399]我们尽是东拼西凑的时光[00:06.540]
+[00:06.548]そ[00:06.708]ろ[00:07.328]そ[00:07.508]ろ[00:08.207]終[00:08.407]わ[00:08.597]り[00:08.807]に[00:09.007]し[00:09.177]よ[00:09.357]う[00:09.817]`
+	got, err := SPLParser{}.Parse(text)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(got.Lines) != 2 {
+		t.Fatalf("lines = %d, want 2: %#v", len(got.Lines), got.Lines)
+	}
+	if got.Lines[0].Text != "ツギハギだらけの君との時間も" {
+		t.Fatalf("line text = %q", got.Lines[0].Text)
+	}
+	if got.Lines[0].Translation != "我们尽是东拼西凑的时光" {
+		t.Fatalf("translation = %q", got.Lines[0].Translation)
+	}
+	if len(got.Lines[0].Words) == 0 {
+		t.Fatalf("expected original words: %#v", got.Lines[0])
+	}
+}
+
 func TestLoadLocalPrefersSPLThenLRC(t *testing.T) {
 	dir := t.TempDir()
 	audio := filepath.Join(dir, "song.flac")

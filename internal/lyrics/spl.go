@@ -195,7 +195,7 @@ func sameTimestampTranslation(lines []Line, lastMain *Line) bool {
 	return lastMain != nil &&
 		len(lines) == 1 &&
 		lines[0].StartMs == lastMain.StartMs &&
-		len(lines[0].Words) == 0
+		(len(lines[0].Words) == 0 || len(lastMain.Words) > 0)
 }
 
 func applyOffset(ly *Lyric) {

@@ -165,6 +165,20 @@ func TestRenderLyricsPaneSeparatesTranslationPairsWithBlankLine(t *testing.T) {
 	if strings.Contains(currentLine, "Translation one") {
 		t.Fatalf("current highlighted line includes translation: %q", currentLine)
 	}
+	rawLines := strings.Split(app.renderLyricsPane(80, 8), "\n")
+	translationRow := ""
+	for _, line := range rawLines {
+		if strings.Contains(line, "Translation one") {
+			translationRow = line
+			break
+		}
+	}
+	if translationRow == "" {
+		t.Fatal("translation row not rendered")
+	}
+	if strings.Contains(translationRow, "\x1b[1;") || strings.Contains(translationRow, "\x1b[1m") {
+		t.Fatalf("translation row uses highlighted style: %q", translationRow)
+	}
 }
 
 func TestRenderCurrentLyricLineKeepsWideTextStable(t *testing.T) {
@@ -187,6 +201,9 @@ func TestRenderCurrentLyricLineKeepsWideTextStable(t *testing.T) {
 	}
 	if strings.Contains(plain, "patched time") {
 		t.Fatalf("current line should not include translation: %q", plain)
+	}
+	if strings.Contains(rendered, "\x1b[1;") || strings.Contains(rendered, "\x1b[1m") {
+		t.Fatalf("word highlight should not use bold SGR because it can shift wide glyphs: %q", rendered)
 	}
 }
 

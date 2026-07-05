@@ -830,7 +830,7 @@ func (a *App) lyricVisualRows(currentLine int) ([]lyricVisualRow, int) {
 func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 	if len(line.Words) == 0 {
 		text := truncateCellText(line.Text, width)
-		return a.styles.accent.Bold(true).Render(text)
+		return a.styles.accent.Render(text)
 	}
 
 	var b strings.Builder
@@ -841,7 +841,7 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 			break
 		}
 		if word.StartMs <= a.pos && a.pos < word.EndMs {
-			b.WriteString(a.styles.accent.Bold(true).Render(text))
+			b.WriteString(a.styles.accent.Render(text))
 		} else {
 			b.WriteString(a.styles.muted.Render(text))
 		}
