@@ -32,25 +32,24 @@ type Styles struct {
 	help      lipgloss.Style
 }
 
-// NewStyles builds styles from a theme.
+// NewStyles builds styles from a theme. No backgrounds — transparent,
+// using the terminal's native background color. Visual separation between
+// panes is via borders only.
 func NewStyles(t *theme.Theme) *Styles {
 	borderColor := t.Muted
 	return &Styles{
 		theme: t,
-		doc:   lipgloss.NewStyle().Foreground(t.Fg).Background(t.Bg),
+		doc:   lipgloss.NewStyle().Foreground(t.Fg),
 		topBar: lipgloss.NewStyle().
-			Background(t.Subtle).
 			Foreground(t.Fg).
+			Align(lipgloss.Center).
 			Border(lipgloss.NormalBorder(), false, false, true, false).
 			BorderForeground(borderColor),
 		leftPane: lipgloss.NewStyle().
-			Background(t.Bg).
 			Border(lipgloss.NormalBorder(), false, true, false, false).
 			BorderForeground(borderColor),
-		rightPane: lipgloss.NewStyle().
-			Background(t.Bg),
+		rightPane: lipgloss.NewStyle(),
 		player: lipgloss.NewStyle().
-			Background(t.Subtle).
 			Border(lipgloss.NormalBorder(), true, false, false, false).
 			BorderForeground(borderColor).
 			Padding(0, 1),
