@@ -37,15 +37,13 @@ func NewStyles(t *theme.Theme) *Styles {
 		theme: t,
 		doc:   lipgloss.NewStyle().Foreground(t.Fg),
 		sidebar: lipgloss.NewStyle().
-			Background(t.Bg).Foreground(t.Fg).
 			BorderRight(true).
-			BorderForeground(t.Muted),
-		main: lipgloss.NewStyle().
-			Background(t.Bg).Foreground(t.Fg).Padding(0, 1),
+			BorderForeground(t.Subtle),
+		main: lipgloss.NewStyle().Padding(0, 1),
 		player: lipgloss.NewStyle().
-			Background(t.Subtle).Foreground(t.Fg).
+			Background(t.Subtle).
 			BorderTop(true).
-			BorderForeground(t.Muted).
+			BorderForeground(t.Subtle).
 			Padding(0, 1),
 		title:  lipgloss.NewStyle().Foreground(t.Accent).Bold(true),
 		muted:  lipgloss.NewStyle().Foreground(t.Muted),
@@ -54,8 +52,9 @@ func NewStyles(t *theme.Theme) *Styles {
 	}
 }
 
-// listDefaultItemDelegate returns a styled list item delegate.
-// We use the default delegate but theme it.
+// newListStyles themes the list item delegate styles.
+// Backgrounds removed from Normal/Dimmed to avoid gray blocks filling the
+// row width; only Selected keeps a background for the highlight effect.
 func newListStyles(t *theme.Theme) list.DefaultItemStyles {
 	s := list.NewDefaultItemStyles(t.Mode == theme.ModeDark)
 	s.NormalTitle = s.NormalTitle.Foreground(t.Fg)
@@ -65,6 +64,24 @@ func newListStyles(t *theme.Theme) list.DefaultItemStyles {
 	s.DimmedTitle = s.DimmedTitle.Foreground(t.Muted)
 	s.DimmedDesc = s.DimmedDesc.Foreground(t.Muted)
 	s.FilterMatch = s.FilterMatch.Foreground(t.Highlight)
+	return s
+}
+
+// newListComponentStyles themes the list's own chrome (title bar, status,
+// pagination, filter) — removing default backgrounds that cause gray blocks.
+func newListComponentStyles(t *theme.Theme) list.Styles {
+	s := list.DefaultStyles(t.Mode == theme.ModeDark)
+	// Strip all backgrounds from chrome — let terminal native bg show.
+	s.TitleBar = s.TitleBar.Foreground(t.Accent).Bold(true)
+	s.Title = s.Title.Foreground(t.Accent).Bold(true)
+	s.Spinner = s.Spinner.Foreground(t.Accent)
+	s.StatusBar = s.StatusBar.Foreground(t.Muted)
+	s.StatusEmpty = s.StatusEmpty.Foreground(t.Muted)
+	s.StatusBarActiveFilter = s.StatusBarActiveFilter.Foreground(t.Highlight)
+	s.StatusBarFilterCount = s.StatusBarFilterCount.Foreground(t.Muted)
+	s.NoItems = s.NoItems.Foreground(t.Muted)
+	s.PaginationStyle = s.PaginationStyle.Foreground(t.Muted)
+	s.HelpStyle = s.HelpStyle.Foreground(t.Muted)
 	return s
 }
 

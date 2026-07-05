@@ -80,7 +80,7 @@ func New(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *log.Logger)
 
 	trackList := list.New([]list.Item{}, newListDelegate(t), 40, 20)
 	trackList.Title = "Tracks"
-	trackList.Styles.Title = styles.title
+	trackList.Styles = newListComponentStyles(t)
 	trackList.SetShowHelp(false)
 	trackList.SetShowTitle(true)
 	trackList.SetShowStatusBar(false)

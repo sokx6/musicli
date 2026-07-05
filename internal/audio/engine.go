@@ -139,16 +139,24 @@ func (e *Engine) Play(path string) error {
 }
 
 // Pause pauses playback.
+// Pause pauses playback. Stops ffmpeg + oto player (audio actually stops).
+// Resume will restart ffmpeg from the paused position.
 func (e *Engine) Pause() error {
 	fl := e.log.WithFunc("Pause")
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	if e.state != StatePlaying {
+		e.mu.Unlock()
 		return nil
 	}
 	e.position = e.computePositionLocked()
 	e.state = StatePaused
-	fl.Debug("paused", "position_ms", e.position)
+	e.mu.Unlock()
+
+	// Kill ffmpeg + close oto player so audio actually stops. Resume will
+	// respawn at e.position. Without this, ffmpeg keeps producing PCM and
+	// oto keeps playing — "pause" did nothing but flip a flag.
+	e.stopInternal(true)
+	fl.Debug("paused (ffmpeg+oto stopped)", "position_ms", e.position)
 	return nil
 }
 
@@ -473,15 +481,16 @@ func (e *Engine) stopInternal(reap bool) {
 	if cancel != nil {
 		cancel()
 	}
-	_ = cmd.Process.Signal(termSignal)
+	// SIGKILL directly — fast track switching. ffmpeg writing to a full
+	// pipe can ignore SIGTERM; SIGKILL is immediate. Process death closes
+	// stdout → io.Copy returns → pw.Close() → done channel fires.
+	_ = cmd.Process.Signal(killSignal)
 	if reap && done != nil {
 		select {
 		case <-done:
 			fl.Debug("reader goroutine exited cleanly", "pid", cmd.Process.Pid)
-		case <-time.After(3 * time.Second):
-			fl.Warn("reader goroutine timed out, force killing", "pid", cmd.Process.Pid)
-			_ = cmd.Process.Signal(killSignal)
-			<-done
+		case <-time.After(1 * time.Second):
+			fl.Warn("reader goroutine timed out after SIGKILL", "pid", cmd.Process.Pid)
 		}
 	}
 }
