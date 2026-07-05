@@ -159,7 +159,7 @@ func scanCmd(sc *library.Scanner, path string) tea.Cmd {
 	return func() tea.Msg {
 		tracks, err := sc.ScanPath(path)
 		if err != nil {
-			return ScanErrMsg{Err: err}
+			return ScanErrMsg{Err: fmt.Errorf("scan path %q: %w", path, err)}
 		}
 		return TracksLoadedMsg{Tracks: tracks}
 	}
@@ -656,6 +656,7 @@ func (a *App) View() tea.View {
 	if rightPaneW < 1 {
 		rightPaneW = 1
 	}
+
 	rightPane := a.styles.rightPane.
 		Width(rightPaneW).
 		Height(bodyH).

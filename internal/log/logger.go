@@ -10,12 +10,14 @@ package log
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -31,7 +33,7 @@ const (
 type Logger struct {
 	*slog.Logger
 	file  *os.File
-Attrs map[string]string // module + func tags for this logger
+	Attrs map[string]string // module + func tags for this logger
 }
 
 // New creates a logger writing to path (truncated on open). level is one of
@@ -50,7 +52,7 @@ func New(level, path string) (*Logger, error) {
 	}
 	return &Logger{
 		Logger: slog.New(h),
-		file:  f,
+		file:   f,
 	}, nil
 }
 
@@ -187,6 +189,14 @@ func (h *handler) Handle(_ context.Context, r slog.Record) error {
 		b = append(b, a.Key...)
 		b = append(b, '=')
 		b = appendAttrValue(b, a.Value)
+		if err, ok := attrError(a); ok {
+			if chain := errorChain(err); chain != "" {
+				b = append(b, ' ')
+				b = append(b, a.Key...)
+				b = append(b, "_chain="...)
+				b = appendQuoted(b, chain)
+			}
+		}
 	}
 	b = append(b, '\n')
 
@@ -225,6 +235,9 @@ func appendLevel(b []byte, lvl slog.Level) []byte {
 }
 
 func appendAttrValue(b []byte, v slog.Value) []byte {
+	if err, ok := valueError(v); ok {
+		return appendQuoted(b, err.Error())
+	}
 	switch v.Kind() {
 	case slog.KindString:
 		return appendQuoted(b, v.String())
@@ -260,4 +273,41 @@ func appendQuoted(b []byte, s string) []byte {
 		return strconv.AppendQuote(b, s)
 	}
 	return append(b, s...)
+}
+
+func attrError(a slog.Attr) (error, bool) {
+	return valueError(a.Value)
+}
+
+func valueError(v slog.Value) (error, bool) {
+	if v.Kind() != slog.KindAny {
+		return nil, false
+	}
+	err, ok := v.Any().(error)
+	return err, ok
+}
+
+func errorChain(err error) string {
+	if err == nil {
+		return ""
+	}
+	parts := []string{}
+	for err != nil {
+		parts = append(parts, errorMessageWithoutWrappedSuffix(err))
+		err = errors.Unwrap(err)
+	}
+	return strings.Join(parts, " -> ")
+}
+
+func errorMessageWithoutWrappedSuffix(err error) string {
+	msg := err.Error()
+	wrapped := errors.Unwrap(err)
+	if wrapped == nil {
+		return msg
+	}
+	suffix := ": " + wrapped.Error()
+	if strings.HasSuffix(msg, suffix) {
+		return strings.TrimSuffix(msg, suffix)
+	}
+	return msg
 }

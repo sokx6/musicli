@@ -1,6 +1,7 @@
 package library
 
 import (
+	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -16,7 +17,7 @@ func probeDuration(path string) (int, error) {
 		path,
 	).Output()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("ffprobe duration %q: %w", path, err)
 	}
 	s := strings.TrimSpace(string(out))
 	if s == "" || s == "N/A" {
@@ -24,7 +25,7 @@ func probeDuration(path string) (int, error) {
 	}
 	secs, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("parse ffprobe duration %q output %q: %w", path, s, err)
 	}
 	return int(secs * 1000), nil
 }

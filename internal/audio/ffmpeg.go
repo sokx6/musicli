@@ -2,6 +2,7 @@ package audio
 
 import (
 	"bytes"
+	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -49,7 +50,7 @@ func probeDuration(path string, logger *log.Logger) (int, error) {
 	fl.Debug("running ffprobe", "cmd", "ffprobe "+strings.Join(args, " "))
 	out, err := exec.Command("ffprobe", args...).Output()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("ffprobe duration %q: %w", path, err)
 	}
 	// ffprobe prints "263.123456\n"
 	s := strings.TrimSpace(string(out))
@@ -59,7 +60,7 @@ func probeDuration(path string, logger *log.Logger) (int, error) {
 	}
 	secs, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("parse ffprobe duration %q output %q: %w", path, s, err)
 	}
 	ms := int(secs * 1000)
 	fl.Debug("duration parsed", "seconds", secs, "ms", ms)

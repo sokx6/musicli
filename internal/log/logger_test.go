@@ -2,6 +2,8 @@ package log
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -122,5 +124,30 @@ func TestAllFourLevels(t *testing.T) {
 		if !bytes.Contains(b, []byte(lvl)) {
 			t.Errorf("missing level %s in log:\n%s", lvl, b)
 		}
+	}
+}
+
+func TestErrorAttrIncludesChain(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/musicli.log"
+	l, err := New(LevelDebug, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := errors.New("permission denied")
+	wrapped := fmt.Errorf("stat /music: %w", root)
+	err = fmt.Errorf("scan path: %w", wrapped)
+
+	l.WithModule("library").WithFunc("ScanPath").
+		Error("scan failed", "err", err)
+	l.Close()
+
+	b, _ := os.ReadFile(path)
+	line := string(b)
+	if !strings.Contains(line, `err="scan path: stat /music: permission denied"`) {
+		t.Fatalf("missing formatted err in log:\n%s", line)
+	}
+	if !strings.Contains(line, `err_chain="scan path -> stat /music -> permission denied"`) {
+		t.Fatalf("missing err_chain in log:\n%s", line)
 	}
 }
