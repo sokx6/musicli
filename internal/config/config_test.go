@@ -17,8 +17,8 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	if c.Playback.Repeat != "list" {
 		t.Errorf("default repeat = %q, want list", c.Playback.Repeat)
 	}
-	if c.Log.Level != "info" {
-		t.Errorf("default log level = %q, want info", c.Log.Level)
+	if c.Log.Level != "debug" {
+		t.Errorf("default log level = %q, want debug", c.Log.Level)
 	}
 }
 

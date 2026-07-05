@@ -36,14 +36,14 @@ func NewStyles(t *theme.Theme) *Styles {
 	borderColor := t.Muted
 	return &Styles{
 		theme: t,
-		doc:   lipgloss.NewStyle().Foreground(t.Fg),
+		doc:   lipgloss.NewStyle().Foreground(t.Fg).Background(t.Bg),
 		sidebar: lipgloss.NewStyle().
-			BorderRight(true).
+			Border(lipgloss.NormalBorder(), false, false, false, true).
 			BorderForeground(borderColor),
 		main: lipgloss.NewStyle().Padding(0, 1),
 		player: lipgloss.NewStyle().
 			Background(t.Subtle).
-			BorderTop(true).
+			Border(lipgloss.NormalBorder(), true, false, false, false).
 			BorderForeground(borderColor).
 			Padding(0, 1),
 		title:  lipgloss.NewStyle().Foreground(t.Accent).Bold(true),

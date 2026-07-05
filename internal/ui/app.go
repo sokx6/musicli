@@ -401,15 +401,23 @@ func (a *App) seekTo(target int) tea.Cmd {
 // --- layout ---
 
 func (a *App) sidebarWidth() int {
+	const maxSidebar = 50
+	const minMain = 10
+
+	if a.width < 60 {
+		// Narrow terminal: collapse to sidebar only.
+		return max(1, a.width)
+	}
+
 	w := a.width / 3
-	if w < 30 {
-		w = 30
+	if w > maxSidebar {
+		w = maxSidebar
 	}
-	if w > 50 {
-		w = 50
+	if w > a.width-minMain {
+		w = a.width - minMain
 	}
-	if w > a.width-20 {
-		w = a.width / 2
+	if w < 1 {
+		w = 1
 	}
 	return w
 }
@@ -418,13 +426,26 @@ func (a *App) resizeComponents() {
 	if a.width == 0 || a.height == 0 {
 		return
 	}
-	sidebarW := a.sidebarWidth()
-	playerBarH := 4
-	mainH := a.height - playerBarH
+	const playerBarH = 4
 
-	a.trackList.SetWidth(sidebarW - 1)
+	sidebarW := a.sidebarWidth()
+	mainH := a.height - playerBarH
+	if mainH < 1 {
+		mainH = 1
+	}
+
+	listW := sidebarW - 1
+	if listW < 1 {
+		listW = 1
+	}
+	a.trackList.SetWidth(listW)
 	a.trackList.SetHeight(mainH)
-	a.progress.SetWidth(a.width - 2)
+
+	progressW := a.width - 2
+	if progressW < 1 {
+		progressW = 1
+	}
+	a.progress.SetWidth(progressW)
 }
 
 // View renders the full UI.
@@ -433,22 +454,38 @@ func (a *App) View() tea.View {
 		return tea.NewView("Initializing...")
 	}
 
-	// Sidebar: track list
-	sidebar := a.styles.sidebar.
-		Width(a.sidebarWidth()).
-		Height(a.height-4).
-		Render(a.trackList.View())
+	const playerBarH = 4
+	mainH := a.height - playerBarH
+	if mainH < 1 {
+		mainH = 1
+	}
 
-	// Main area: now playing info
-	main := a.renderMain()
+	// Sidebar: track list
+	sidebarW := a.sidebarWidth()
+	sidebar := a.styles.sidebar.
+		Width(sidebarW).
+		Height(mainH).
+		Render(a.trackList.View())
 
 	// Player bar
 	bar := a.renderPlayerBar()
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, main)
+	var body string
+	if a.width < 60 {
+		// Narrow terminal: sidebar only to avoid overflow.
+		body = sidebar
+	} else {
+		// Main area: now playing info
+		main := a.renderMain()
+		body = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, main)
+	}
+
 	full := lipgloss.JoinVertical(lipgloss.Left, body, bar)
 
-	v := tea.NewView(a.styles.doc.Render(full))
+	// Fill the entire terminal frame so stale lines are cleared on resize.
+	frame := a.styles.doc.Width(a.width).Height(a.height).Render(full)
+
+	v := tea.NewView(frame)
 	v.MouseMode = tea.MouseModeAllMotion
 	return v
 }
