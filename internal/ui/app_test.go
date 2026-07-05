@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -77,5 +80,57 @@ func TestTrackListMaxWidthCapsContentWidth(t *testing.T) {
 	}
 	if got := app.leftPaneWidth(); got != 128 {
 		t.Fatalf("left pane width = %d, want 128", got)
+	}
+}
+
+func TestLoadCurrentLyricsShowsCurrentLine(t *testing.T) {
+	dir := t.TempDir()
+	audio := filepath.Join(dir, "song.mp3")
+	if err := os.WriteFile(audio, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "song.lrc"), []byte("[00:01.00]First\n[00:03.00]Second"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	m, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	app = m.(*App)
+	m, _ = app.Update(TracksLoadedMsg{Tracks: []*library.Track{{Path: audio, Title: "Song"}}})
+	app = m.(*App)
+
+	app.current = 0
+	app.pos = 3500
+	app.loadCurrentLyrics()
+
+	view := app.renderLeftPane()
+	if !strings.Contains(view, "Second") {
+		t.Fatalf("left pane missing current lyric line:\n%s", view)
+	}
+}
+
+func TestRenderLyricsPaneIncludesWordTimedCurrentLine(t *testing.T) {
+	dir := t.TempDir()
+	audio := filepath.Join(dir, "song.mp3")
+	if err := os.WriteFile(audio, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "song.spl"), []byte("[00:01.00]Hello [00:02.00]world[00:03.00]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	m, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	app = m.(*App)
+	m, _ = app.Update(TracksLoadedMsg{Tracks: []*library.Track{{Path: audio, Title: "Song"}}})
+	app = m.(*App)
+
+	app.current = 0
+	app.pos = 2500
+	app.loadCurrentLyrics()
+
+	view := app.renderLeftPane()
+	if !strings.Contains(view, "Hello ") || !strings.Contains(view, "world") {
+		t.Fatalf("left pane missing word-timed lyric text:\n%s", view)
 	}
 }

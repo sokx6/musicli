@@ -2,7 +2,9 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/locxl/musicli/internal/audio"
 	"github.com/locxl/musicli/internal/library"
 	"github.com/locxl/musicli/internal/log"
+	"github.com/locxl/musicli/internal/lyrics"
 	"github.com/locxl/musicli/internal/theme"
 )
 
@@ -70,9 +73,11 @@ type App struct {
 	delegate  list.DefaultDelegate
 	progress  progress.Model
 
-	tracks  []*library.Track
-	current int // index into tracks, -1 if none
-	loading bool
+	tracks    []*library.Track
+	current   int // index into tracks, -1 if none
+	loading   bool
+	lyric     *lyrics.Lyric
+	lyricPath string
 
 	// playback state mirror (polled from engine)
 	pos       int
@@ -429,6 +434,7 @@ func (a *App) playSelected() tea.Cmd {
 		fl.Error("Play failed", "err", err)
 		return func() tea.Msg { return errMsg{err: err} }
 	}
+	a.loadCurrentLyrics()
 	return nil
 }
 
@@ -462,6 +468,7 @@ func (a *App) nextTrack() tea.Cmd {
 		fl.Error("Play failed", "err", err)
 		return func() tea.Msg { return errMsg{err: err} }
 	}
+	a.loadCurrentLyrics()
 	return nil
 }
 
@@ -483,6 +490,7 @@ func (a *App) prevTrack() tea.Cmd {
 		fl.Error("Play failed", "err", err)
 		return func() tea.Msg { return errMsg{err: err} }
 	}
+	a.loadCurrentLyrics()
 	return nil
 }
 
@@ -513,6 +521,29 @@ func (a *App) seekTo(target int) tea.Cmd {
 		return func() tea.Msg { return errMsg{err: err} }
 	}
 	return nil
+}
+
+func (a *App) loadCurrentLyrics() {
+	fl := a.log.WithFunc("loadCurrentLyrics")
+	a.lyric = nil
+	a.lyricPath = ""
+	if a.current < 0 || a.current >= len(a.tracks) {
+		return
+	}
+	path := a.tracks[a.current].Path
+	if path == "" {
+		return
+	}
+	ly, lyricPath, err := lyrics.LoadLocal(path)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			fl.Warn("local lyric load failed", "path", path, "err", err)
+		}
+		return
+	}
+	a.lyric = ly
+	a.lyricPath = lyricPath
+	fl.Info("local lyric loaded", "path", lyricPath, "lines", len(ly.Lines))
 }
 
 // --- layout ---
@@ -718,8 +749,101 @@ func (a *App) renderLeftPane() string {
 	if h < 1 {
 		h = 1
 	}
+	if a.lyric != nil && len(a.lyric.Lines) > 0 {
+		return a.renderLyricsPane(w, h)
+	}
 	placeholder := a.styles.muted.Render("[ cover + lyrics ]")
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, placeholder)
+}
+
+func (a *App) renderLyricsPane(w, h int) string {
+	idx := a.currentLyricLineIndex()
+	start := idx - h/2
+	if start < 0 {
+		start = 0
+	}
+	if maxStart := len(a.lyric.Lines) - h; maxStart >= 0 && start > maxStart {
+		start = maxStart
+	}
+
+	lines := make([]string, 0, h)
+	for row := 0; row < h; row++ {
+		lineIdx := start + row
+		if lineIdx >= len(a.lyric.Lines) {
+			lines = append(lines, "")
+			continue
+		}
+		if lineIdx == idx {
+			lines = append(lines, a.renderCurrentLyricLine(a.lyric.Lines[lineIdx], w-1))
+		} else {
+			text := a.lyric.Lines[lineIdx].Text
+			if a.lyric.Lines[lineIdx].Translation != "" {
+				text += " / " + a.lyric.Lines[lineIdx].Translation
+			}
+			text = truncateCellText(text, w-1)
+			lines = append(lines, a.styles.muted.Render(text))
+		}
+	}
+	return lipgloss.NewStyle().Width(w).Height(h).PaddingLeft(1).Render(strings.Join(lines, "\n"))
+}
+
+func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
+	if len(line.Words) == 0 {
+		text := truncateCellText(line.Text, width)
+		return a.styles.accent.Bold(true).Render(text)
+	}
+
+	var b strings.Builder
+	for _, word := range line.Words {
+		text := truncateCellText(word.Text, width-lipgloss.Width(b.String()))
+		if text == "" {
+			break
+		}
+		if word.StartMs <= a.pos && a.pos < word.EndMs {
+			b.WriteString(a.styles.accent.Bold(true).Render(text))
+		} else {
+			b.WriteString(a.styles.muted.Render(text))
+		}
+		if strings.HasSuffix(text, "…") {
+			break
+		}
+	}
+	if line.Translation != "" && lipgloss.Width(b.String()) < width {
+		sep := " / "
+		remaining := width - lipgloss.Width(b.String())
+		b.WriteString(a.styles.muted.Render(truncateCellText(sep+line.Translation, remaining)))
+	}
+	return b.String()
+}
+
+func (a *App) currentLyricLineIndex() int {
+	if a.lyric == nil || len(a.lyric.Lines) == 0 {
+		return 0
+	}
+	idx := 0
+	for i, line := range a.lyric.Lines {
+		if line.StartMs <= a.pos && (line.EndMs == 0 || a.pos < line.EndMs) {
+			return i
+		}
+		if line.StartMs <= a.pos {
+			idx = i
+		}
+	}
+	return idx
+}
+
+func truncateCellText(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	runes := []rune(s)
+	for len(runes) > 0 && lipgloss.Width(string(runes)+"…") > width {
+		runes = runes[:len(runes)-1]
+	}
+	return string(runes) + "…"
 }
 
 func (a *App) renderPlayerBar() string {
