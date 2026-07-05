@@ -34,5 +34,5 @@ name = "default"
 # next = ["n", "l"]
 
 [log]
-level = "info"       # debug | info | warning | error
+level = "debug"      # debug | info | warning | error
 file = ""            # empty = ~/.local/state/musicli/musicli.log
