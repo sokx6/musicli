@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -133,4 +134,48 @@ func TestRenderLyricsPaneIncludesWordTimedCurrentLine(t *testing.T) {
 	if !strings.Contains(view, "Hello ") || !strings.Contains(view, "world") {
 		t.Fatalf("left pane missing word-timed lyric text:\n%s", view)
 	}
+}
+
+func TestRenderLyricsPaneSeparatesTranslationPairsWithBlankLine(t *testing.T) {
+	dir := t.TempDir()
+	audio := filepath.Join(dir, "song.mp3")
+	if err := os.WriteFile(audio, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "song.lrc"), []byte("[00:01.00]Original one\nTranslation one\n[00:03.00]Original two\nTranslation two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	m, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	app = m.(*App)
+	m, _ = app.Update(TracksLoadedMsg{Tracks: []*library.Track{{Path: audio, Title: "Song"}}})
+	app = m.(*App)
+
+	app.current = 0
+	app.pos = 1500
+	app.loadCurrentLyrics()
+
+	view := trimRightLines(stripANSI(app.renderLeftPane()))
+	if !strings.Contains(view, " Original one\n Translation one\n\n Original two\n Translation two") {
+		t.Fatalf("lyric pairs are not separated as expected:\n%s", view)
+	}
+	currentLine := app.renderCurrentLyricLine(app.lyric.Lines[0], 80)
+	if strings.Contains(currentLine, "Translation one") {
+		t.Fatalf("current highlighted line includes translation: %q", currentLine)
+	}
+}
+
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;:]*[A-Za-z]`)
+
+func stripANSI(s string) string {
+	return ansiRE.ReplaceAllString(s, "")
+}
+
+func trimRightLines(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " ")
+	}
+	return strings.Join(lines, "\n")
 }

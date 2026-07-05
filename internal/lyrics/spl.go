@@ -19,7 +19,7 @@ func (SPLParser) Format() string { return "spl" }
 
 func (SPLParser) Parse(text string) (*Lyric, error) {
 	ly := &Lyric{Tags: map[string]string{}}
-	var lastMain *Line
+	lastMainIdx := -1
 
 	for _, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		lineText := strings.TrimSpace(raw)
@@ -35,20 +35,20 @@ func (SPLParser) Parse(text string) (*Lyric, error) {
 			return nil, err
 		}
 		if len(tokens) == 0 {
-			if lastMain != nil {
-				appendTranslation(lastMain, lineText)
+			if lastMainIdx >= 0 {
+				appendTranslation(&ly.Lines[lastMainIdx], lineText)
 			}
 			continue
 		}
 
 		lines, isTranslation := buildLines(lineText, tokens)
-		if (isTranslation || sameTimestampTranslation(lines, lastMain)) && lastMain != nil {
-			appendTranslation(lastMain, lines[0].Text)
+		if lastMainIdx >= 0 && (isTranslation || sameTimestampTranslation(lines, &ly.Lines[lastMainIdx])) {
+			appendTranslation(&ly.Lines[lastMainIdx], lines[0].Text)
 			continue
 		}
 		for i := range lines {
 			ly.Lines = append(ly.Lines, lines[i])
-			lastMain = &ly.Lines[len(ly.Lines)-1]
+			lastMainIdx = len(ly.Lines) - 1
 		}
 	}
 

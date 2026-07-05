@@ -758,33 +758,73 @@ func (a *App) renderLeftPane() string {
 
 func (a *App) renderLyricsPane(w, h int) string {
 	idx := a.currentLyricLineIndex()
-	start := idx - h/2
+	rows, currentRow := a.lyricVisualRows(idx)
+	start := currentRow - h/2
 	if start < 0 {
 		start = 0
 	}
-	if maxStart := len(a.lyric.Lines) - h; maxStart >= 0 && start > maxStart {
+	if maxStart := len(rows) - h; maxStart >= 0 && start > maxStart {
 		start = maxStart
 	}
 
-	lines := make([]string, 0, h)
+	rendered := make([]string, 0, h)
 	for row := 0; row < h; row++ {
-		lineIdx := start + row
-		if lineIdx >= len(a.lyric.Lines) {
-			lines = append(lines, "")
+		rowIdx := start + row
+		if rowIdx >= len(rows) {
+			rendered = append(rendered, "")
 			continue
 		}
-		if lineIdx == idx {
-			lines = append(lines, a.renderCurrentLyricLine(a.lyric.Lines[lineIdx], w-1))
-		} else {
-			text := a.lyric.Lines[lineIdx].Text
-			if a.lyric.Lines[lineIdx].Translation != "" {
-				text += " / " + a.lyric.Lines[lineIdx].Translation
+		visual := rows[rowIdx]
+		switch visual.kind {
+		case lyricRowOriginal:
+			if visual.lineIdx == idx {
+				rendered = append(rendered, a.renderCurrentLyricLine(a.lyric.Lines[visual.lineIdx], w-1))
+			} else {
+				text := truncateCellText(a.lyric.Lines[visual.lineIdx].Text, w-1)
+				rendered = append(rendered, a.styles.muted.Render(text))
 			}
-			text = truncateCellText(text, w-1)
-			lines = append(lines, a.styles.muted.Render(text))
+		case lyricRowTranslation:
+			text := truncateCellText(visual.text, w-1)
+			rendered = append(rendered, a.styles.muted.Render(text))
+		default:
+			rendered = append(rendered, "")
 		}
 	}
-	return lipgloss.NewStyle().Width(w).Height(h).PaddingLeft(1).Render(strings.Join(lines, "\n"))
+	return lipgloss.NewStyle().Width(w).Height(h).PaddingLeft(1).Render(strings.Join(rendered, "\n"))
+}
+
+type lyricRowKind int
+
+const (
+	lyricRowOriginal lyricRowKind = iota
+	lyricRowTranslation
+	lyricRowBlank
+)
+
+type lyricVisualRow struct {
+	lineIdx int
+	kind    lyricRowKind
+	text    string
+}
+
+func (a *App) lyricVisualRows(currentLine int) ([]lyricVisualRow, int) {
+	rows := []lyricVisualRow{}
+	currentRow := 0
+	for i, line := range a.lyric.Lines {
+		if i == currentLine {
+			currentRow = len(rows)
+		}
+		rows = append(rows, lyricVisualRow{lineIdx: i, kind: lyricRowOriginal, text: line.Text})
+		if line.Translation != "" {
+			for _, tr := range strings.Split(line.Translation, "\n") {
+				rows = append(rows, lyricVisualRow{lineIdx: i, kind: lyricRowTranslation, text: tr})
+			}
+		}
+		if i != len(a.lyric.Lines)-1 {
+			rows = append(rows, lyricVisualRow{lineIdx: i, kind: lyricRowBlank})
+		}
+	}
+	return rows, currentRow
 }
 
 func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
