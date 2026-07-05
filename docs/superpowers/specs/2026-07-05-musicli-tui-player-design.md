@@ -15,7 +15,7 @@
 | 音频输出 | `github.com/ebitengine/oto/v3` | 吃 ffmpeg PCM 流，低层稳定 |
 | 解码+倍速 | ffmpeg/ffprobe 管道 + atempo 滤镜 | 格式最广（含 M4A/AAC/ALAC），倍速不变调 |
 | Tag 读取 | `github.com/dhowden/tag` | 覆盖 MP3/MP4/FLAC/OGG/Opus + 封面 |
-| 终端图片 | `github.com/blacktop/go-termimg` + `disintegration/imaging` 缩放 | kitty/sixel/iTerm2 自动检测 + half-block 回退 |
+| 终端图片 | 手写各协议 + `disintegration/imaging` 缩放 | kitty/sixel/iTerm2/halfblock，环境变量检测（无 TTY 查询，避免与 bubbletea 输入循环冲突） |
 | FFT 频谱 | `github.com/cwbudde/algo-fft` + `algo-dsp` | SIMD 零分配 |
 | 主题检测 | `godbus/dbus/v5` → gsettings → `muesli/termenv` OSC11 | 三级覆盖 |
 | 配置 | `github.com/pelletier/go-toml/v2` | TOML 解析 |
@@ -27,89 +27,93 @@
 
 ```
 musicli/
-  cmd/musicli/main.go          # 入口
+  cmd/musicli/main.go          # 入口：root context + 信号处理 + defer 清理
   internal/
     config/                    # TOML 配置加载、默认值、XDG 路径
       config.go
       defaults.go
-      paths.go                 # XDG 路径解析
+      paths.go                 # XDG 路径解析（os.UserConfigDir 等）
+      config.example.toml      # go:embed 嵌入，首次运行写出
       keybindings.go           # 快捷键配置模型
       theme.go                 # 主题配置模型
     log/                       # 日志审计系统
-      logger.go                # slog 封装，4 级，文件+终端
-    audio/                     # 音频引擎
-      engine.go                # 播放控制接口
+      logger.go                # slog 封装，4 级，启动时 O_TRUNC 清空
+    audio/                     # 音频引擎（纯，不依赖 bubbletea）
+      engine.go                # 播放控制（具体类型，非接口）
       ffmpeg.go                # ffmpeg 管道后端（解码+atempo+PCM）
       oto.go                   # oto 输出
-      spectrum.go              # PCM tee → FFT 环形缓冲
-    library/                   # 媒体库
+      # spectrum.go 在阶段 9 加，不在阶段 1
+    library/                   # 媒体库（叶子包，无跨依赖）
       track.go                 # Track 数据模型
-      scanner.go               # 文件/文件夹扫描
+      scanner.go               # 文件/文件夹扫描（具体类型）
       tag.go                   # dhowden/tag 封装
       album.go                 # 专辑分组
       sort.go                  # 排序（名字/大小/年份，正序倒序）
-    playlist/                  # 歌单
-      playlist.go              # 歌单模型、增删、排序
-    lyrics/                    # 歌词系统
+    playlist/                  # 歌单（依赖 library）
+      playlist.go              # 歌单模型、增删、排序、持久化到 JSON
+    lyrics/                    # 歌词系统（叶子包，无跨依赖）
       model.go                 # Line/Word/Lyric 归一化模型
       parser.go                # 解析器接口
-      spl.go                   # SPL 解析器（首要，含普通 LRC）
-      lrc.go                   # 普通 LRC（SPL 子集）
-      yrc.go                   # YRC（暂缓）
-      qrc.go                   # QRC + 解密（暂缓）
-      krc.go                   # KRC + 解密（暂缓）
-      fetcher.go               # 歌词爬取接口
-      netease.go               # 网易云 API
-      qq.go                    # QQ 音乐 API
-      kugou.go                 # 酷狗 API
-      matcher.go               # 本地歌曲→在线匹配
-    cover/                     # 专辑封面
-      image.go                 # 从 tag/文件提取封面
-      render.go                # 终端图片渲染（协议检测+缩放）
+      spl.go                   # SPL 解析器（含普通 LRC，SPL 是 LRC 超集，无单独 lrc.go）
+      # yrc.go/qrc.go/krc.go 在实现时才创建，不预置 stub
+      # fetcher.go/netease.go/qq.go/kugou.go/lrclib.go 在阶段 12 才创建
+      matcher.go               # 本地歌曲→在线匹配（Search 接受 Query 结构体，非 Track）
+    cover/                     # 专辑封面（叶子包，Render 接受 path/image）
+      image.go                 # 从 path 提取封面
+      render.go                # 渲染接口+协议检测（环境变量，无 TTY 查询）
       protocol_kitty.go        # kitty 图形协议
       protocol_sixel.go        # sixel
       protocol_iterm.go        # iTerm2
       protocol_halfblock.go    # ASCII 块回退
-    theme/                     # 主题系统
-      theme.go                 # 主题模型、深/浅色
+    theme/                     # 主题系统（叶子包）
+      theme.go                 # 主题模型、深/浅色（具体类型）
       detect.go                # 系统主题检测+监听
       palette.go               # 调色板
-    ui/                        # TUI 层
+    ui/                        # TUI 层（唯一依赖 bubbletea 的包）
       app.go                   # 顶层 model（bubbletea）
       layout.go                # 响应式布局
       views/                   # 各视图
         library.go             # 媒体库列表
         nowplaying.go          # 正在播放（封面+歌词）
         playlist.go            # 歌单管理
-        spectrum.go            # 频谱可视化
+        spectrum.go            # 频谱可视化（阶段 9）
       widgets/                 # 可复用组件
         playerbar.go           # 底部播放栏（进度+控制）
         lyricsview.go          # 歌词逐字高亮
         coverview.go           # 封面显示
         list.go                # 通用列表（封装 bubbles/list）
-      keys.go                  # 快捷键绑定
+      keys.go                  # 快捷键绑定（阶段 3 默认 KeyMap，阶段 11 TOML 覆盖）
       mouse.go                 # 鼠标处理
-      styles.go                # lipgloss 样式（绑定主题）
-  config/                      # 默认配置模板
-    config.example.toml
-  docs/
+      styles.go                # lipgloss 样式（绑定 Theme，阶段 3 起就有）
   go.mod
   Makefile
+  *_test.go                    # 各包核心逻辑自检测试
 ```
 
-### 3.2 模块依赖（低耦合）
+**关键调整（oracle 评审）**：
+- 删除所有暂缓格式的 stub 文件（yrc/qrc/krc/fetcher 各源），实现时才创建
+- 删除 `lyrics/lrc.go`：SPL 是 LRC 超集，一个解析器覆盖两者
+- 删除顶层 `config/` 目录：用 `go:embed` 嵌入 `config.example.toml`
+- `config.example.toml` 放 `internal/config/` 下
+
+### 3.2 模块依赖（低耦合，叶子包优先）
 
 ```
 config ← log ← (所有模块依赖这两个)
-audio ← ui
-library ← ui
-playlist ← ui
-lyrics ← ui
-cover ← ui
-theme ← ui
+audio      (叶子包，纯，不依赖 bubbletea)
+library    (叶子包)
+lyrics     (叶子包，Search 接受 Query 结构体，非 library.Track)
+cover      (叶子包，Render 接受 path/image，非 library.Track)
+theme      (叶子包)
+playlist → library
+ui → {audio, library, playlist, lyrics, cover, theme}  # 唯一依赖 bubbletea 的包
 ```
 
-模块间通过接口通信，不直接依赖具体实现。例如 `audio.Engine` 是接口，`ffmpeg` 是实现；`lyrics.Parser` 是接口，`spl` 是实现。这样便于扩展（加新格式/新源/新后端只加实现，不改接口）。
+**接口使用原则（oracle 评审）**：接口只在 ≥2 实现或有测试替身时才引入。
+- `lyrics.Parser`：保留（SPL 现在，YRC/QRC/KRC 计划中）
+- `lyrics.Fetcher`：保留（阶段 12 才创建，多源）
+- `cover.Renderer`：保留（4 个实现）
+- `audio.Engine`、`library.Scanner`、`theme.Detector`、`playlist.Manager`：**用具体类型**，单实现不接口化
 
 ### 3.3 数据流
 
@@ -174,46 +178,53 @@ file = "~/.local/state/musicli/musicli.log"
 ### 4.2 日志审计 (log/)
 
 - 4 级：debug/info/warning/error（对应 slog 的 Debug/Info/Warn/Error）
-- 输出：文件（`~/.local/state/musicli/musicli.log`）+ 可选终端（debug 模式）
-- 结构化：JSON 或文本，带时间戳、级别、模块名、消息、上下文字段
-- **错误必须带上下文**：文件路径、错误链（`fmt.Errorf("%w", err)` 或 slog 的 With）、可定位位置
-- 轮转：按大小轮转（默认 10MB × 5 份），避免无限增长
+- 输出：文件（`~/.local/state/musicli/musicli.log`），启动时 `O_TRUNC` 清空（v1 不做轮转，避免引入 lumberjack 依赖；日志增长慢，真有问题再加）
+- 结构化：文本格式，带时间戳、级别、模块名、消息、上下文字段
+- **错误必须带上下文**：文件路径、错误链（`fmt.Errorf("%w", err)`）、可定位位置
+- 子 logger：`WithModule(name)` 带 module 字段
 
 ```go
-// log/logger.go 核心接口
+// log/logger.go
 type Logger struct { *slog.Logger; file *os.File }
 func New(level string, path string) (*Logger, error)
-func (l *Logger) WithModule(name string) *Logger  // 子 logger，带 module 字段
+func (l *Logger) WithModule(name string) *Logger
 // 用法：log.WithModule("audio").Error("ffmpeg 启动失败", "path", p, "err", err)
 ```
 
 ### 4.3 音频引擎 (audio/)
 
-接口优先，ffmpeg 是实现：
+具体类型（非接口，单实现）。纯包，不依赖 bubbletea——UI 用 30fps `tea.Tick` 轮询 `Position()`/`State()`，不用回调。
 
 ```go
-type Engine interface {
-    Play(path string) error
-    Pause() error
-    Resume() error
-    Seek(positionMs int) error
-    SetVolume(v int) error        // 0-100
-    SetSpeed(s float64) error     // 0.5-2.0
-    Position() int                // 当前位置 ms
-    Duration() int                // 总时长 ms
-    State() State                 // Playing|Paused|Stopped
-    SpectrumData() []float64      // 频谱数据（ tapped from PCM）
-    OnUpdate(cb func(Update))     // 播放进度回调
-}
+type Engine struct { /* unexported fields */ }
+func New(ctx context.Context, otoCtx *oto.Context, log *log.Logger) *Engine
+func (e *Engine) Play(path string) error
+func (e *Engine) Pause() error
+func (e *Engine) Resume() error
+func (e *Engine) Seek(positionMs int) error
+func (e *Engine) SetVolume(v int) error        // 0-100
+func (e *Engine) SetSpeed(s float64) error     // 0.5-2.0
+func (e *Engine) Position() int                // 客户端计算，非查询 ffmpeg
+func (e *Engine) Duration() int                // 总时长 ms（ffprobe 预取）
+func (e *Engine) State() State                 // Playing|Paused|Stopped
+func (e *Engine) Err() error                   // 异步错误（ffmpeg 崩溃等），UI tick 读取
+// 阶段 9 加 SpectrumData，不在阶段 1 承诺
 ```
 
 ffmpeg 后端：
 - 启动：`ffmpeg -ss <seek> -i <path> -filter:a "atempo=<speed>" -f s16le -ar 48000 -ac 2 pipe:1`
 - 倍速 >2 链式：`atempo=2.0,atempo=1.5`
-- seek：终止当前进程，用新 `-ss` 重启（流式管道 seek 困难，重起最稳）
-- PCM tee：goroutine 读 ffmpeg stdout，一份喂 oto，一份喂 FFT 环形缓冲
-- 时长：ffprobe 预先获取（`-show_entries format=duration`）
-- 错误处理：ffmpeg 启动失败/非零退出码记 error 日志（带 path、stderr 内容）
+- **seek（oracle 评审强制项）**：
+  1. SIGTERM 旧 ffmpeg → 短超时 → SIGKILL
+  2. `oto.Player.Reset()` 刷新 oto 缓冲（避免残留旧音频 ~100ms）
+  3. 等 reader goroutine 退出（done channel / WaitGroup）→ `cmd.Wait()` 收割（防僵尸，每次 seek）
+  4. 用新 `-ss` 重启 ffmpeg + 新 reader goroutine
+- **位置追踪（客户端）**：记录 `startTimestampMs` + `playStartWallTime`，`Position() = startTimestampMs + int(time.Since(playStartWallTime)*speed)`，扣除暂停时长。不查询 ffmpeg。
+- PCM 读取 goroutine：读 ffmpeg stdout → 阻塞写 oto（背压）→ 非阻塞写频谱环形缓冲（阶段 9 加，满则丢最旧）
+- 时长：ffprobe 预取（`-show_entries format=duration`）；失败记 warning，duration=0，UI 显示 `--:--`，按百分比 seek 禁用
+- **并发安全（oracle Risk-C）**：`Position()/State()/Duration()` 用 `sync.Mutex` 或 `atomic` 保护（UI 30fps 读 vs 音频 goroutine 写，`go test -race` 必过）
+- **采样格式单一真相源**：常量 `SampleRate=48000, Channels=2, BitDepthInBytes=2`，ffmpeg 命令构造和 oto 初始化共用
+- 错误处理：ffmpeg 启动失败/非零退出记 error（path、stderr、exitcode），设 `State()=Stopped` + `Err()`
 
 ### 4.4 媒体库 (library/)
 
@@ -248,10 +259,12 @@ type Playlist struct {
 }
 type Manager struct {
     playlists map[string]*Playlist
-    current   string  // 当前歌单名
+    current   string
+    stateDir  string  // ~/.local/state/musicli/
 }
 ```
 - 添加歌单、删除歌单、加入当前歌单、对当前歌单排序（复用 library/sort 逻辑）
+- **持久化（oracle Miss-3）**：变更时 marshal 到 `~/.local/state/musicli/playlists.json`，启动时加载。几行代码，不丢用户数据。
 
 ### 4.6 歌词 (lyrics/)
 
@@ -288,11 +301,13 @@ type Parser interface {
 
 本地歌词加载：按音频文件路径查找同名 `.lrc`/`.spl`，找到则解析；找不到且开启 auto_fetch 则爬取。
 
-爬取（lyrics/fetcher.go + 各源）：
-- 接口 `Fetcher interface { Search(query) ([]Result, error); FetchLyric(id) (*Lyric, error) }`
+爬取（lyrics/fetcher.go + 各源，阶段 12）：
+- 接口 `Fetcher interface { Search(q Query) ([]Result, error); FetchLyric(id) (*Lyric, error) }`
+- **`Query` 结构体**（非 library.Track，解耦）：`Query{Title, Artist, Album, DurationMs string/int}`
 - 匹配：时长 ±4s 门控 + 标题/歌手/专辑文本相似度（LCS ratio），cutoff 55，差 15 内取最丰富
-- 源：QQ（musicu.fcg，QRC 需 3DES+zlib 解密）、网易云（公开 API `yv=-1`，YRC 纯文本）、酷狗（lyrics.kugou.com，KRC 需 XOR+zlib）
+- **源顺序（oracle Adj-D）**：LRCLIB 首选（公开 REST，无 auth 无 crypto，返回纯 LRC，SPL 解析器直接吃）→ QQ（musicu.fcg，QRC 需 3DES+zlib）→ 网易云（公开 API `yv=-1`，YRC 纯文本）→ 酷狗（lyrics.kugou.com，KRC 需 XOR+zlib）
 - 错误处理：网络失败记 warning（带 query/source），解析失败记 error（带原始内容片段）
+- **QRC/KRC 解密自检（oracle Risk-E）**：实现时带已知密文→明文测试向量，crypto 不自检不可接受
 
 **暂缓格式**：YRC/QRC/KRC 解析器+解密、TTML/LYS/LRCv2/Lyrics File。留 parser 接口和文件，实现为 `return nil, ErrNotImplemented`。
 
@@ -303,12 +318,19 @@ type Renderer interface {
     Render(img image.Image, w, h int) string  # 返回带转义的字符串
 }
 ```
-- 提取：优先 tag.Picture()，无则查同目录 cover.jpg/folder.png 等
-- 协议检测：KITTY_WINDOW_ID / TERM / TERM_PROGRAM → kitty/sixel/iterm/halfblock
-- 缩放：`disintegration/imaging` resize 到目标单元格像素尺寸（按终端字体像素估算）
-- kitty：`\x1b_Ga=T,t=d,f=100,s=,v=,c=,r=,m=;<b64>\x1b\\` 分块
-- halfblock：`▀▄` + ANSI 前后景色，回退方案
-- 渲染策略：View() 占位空格 + 帧后 ANSI 光标定位写转义（goberzurg 做法）
+- 提取：`Extract(path string) (image.Image, error)`——优先 tag.Picture()，无则查同目录 cover.jpg/folder.png 等（接受 path，非 Track，解耦）
+- **协议检测（oracle 评审，无 TTY 查询，避免与 bubbletea 输入循环冲突）**：
+  - `KITTY_WINDOW_ID` set 或 `TERM=xterm-kitty` → kitty
+  - `TERM_PROGRAM == "WezTerm"` 或含 `iTerm` → iterm
+  - `TERM` 含 `sixel` → sixel
+  - `TMUX` set → 警告图形可能不透传，回退 halfblock（oracle Miss-5）
+  - 否则 → halfblock
+- 缩放：`disintegration/imaging` resize 到目标单元格像素尺寸
+- kitty：`\x1b_Ga=T,t=d,f=100,s=,v=,c=,r=,m=;<b64>\x1b\\` 分块（~30 行）
+- iterm：`\x1b]1337;File=...\x1b\\`（~10 行）
+- halfblock：`▀▄` + ANSI 前后景色（~20 行）
+- sixel：像素编码（~100 行，参考现有实现）
+- 渲染策略：View() 占位空格 + 帧后 ANSI 光标定位写转义
 
 ### 4.8 主题 (theme/)
 
@@ -395,26 +417,38 @@ type KeyMap struct {
   - 主题检测：dbus 失败 → info（降级 gsettings）；gsettings 失败 → info（降级 OSC11）
 - 用户可见错误：TUI 底栏短暂提示（如"歌词未找到"），详细见日志文件
 
+### 6.1 优雅关闭与终端恢复（oracle Risk-A/F，spec 原缺失）
+
+`main()` 强制项：
+1. **root `context.Context`** + 信号处理（SIGINT/SIGTERM）
+2. context 取消 → 关闭 ffmpeg stdout → reader goroutine 见 EOF 退出 → `cmd.Wait()` 收割
+3. 关闭 oto context/player（oto context 在 `main()` 创建一次，全程复用，oracle Risk-B2）
+4. **defer 终端清理**：退出 alt-screen、关鼠标模式、发 kitty 图形删除 `\x1b_Ga=d\x1b\\`
+5. **`recover()`**：panic 时先记日志+堆栈，再恢复终端，避免崩溃留下损坏终端
+6. flush 日志文件
+
+测试：强制在封面渲染时 panic，验证终端恢复正常。
+
 ## 7. 实现阶段
 
-每阶段一次或多次 git 提交，提交信息遵循 Conventional Commits（`feat:`/`fix:`/`refactor:`/`docs:`/`chore:`）。
+每阶段一次或多次 git 提交，遵循 Conventional Commits。每阶段核心逻辑带至少一个 `go test` 自检（oracle Miss-6）。
 
 | 阶段 | 内容 | 提交 |
 |---|---|---|
-| 0 | 工程骨架：go mod、目录、日志、配置、Makefile | feat: scaffold project |
-| 1 | 音频引擎（ffmpeg+oto，播放/暂停/seek/音量/倍速） | feat: audio engine |
+| 0 | 工程骨架：go mod、目录、log（slog+O_TRUNC）、config（XDG+go:embed+默认）、root context+信号处理+defer 清理、Makefile、`go test` 约定、gitignore 测试音频 | feat: scaffold project |
+| 1 | 音频引擎（ffmpeg+oto，播放/暂停/seek/音量/倍速，客户端位置追踪，oto context 单例，goroutine 同步，race-safe） | feat: audio engine |
 | 2 | 媒体库（扫描、tag、专辑分组、排序） | feat: media library |
-| 3 | 基础 TUI（布局、列表、播放栏、进度、键鼠） | feat: basic tui |
-| 4 | SPL 歌词（解析+逐字高亮视图） | feat: spl lyrics |
-| 5 | 专辑封面（kitty/sixel/halfblock） | feat: album cover |
+| 3 | 基础 TUI（布局、列表、播放栏、进度、键鼠）+ **最小 Theme 结构体**（默认深色调色板，styles.go 从第一天就绑定）+ **默认 KeyMap**（硬编码，阶段 11 才 TOML 覆盖） | feat: basic tui |
+| 4 | SPL 歌词（解析器+逐字高亮视图，含普通 LRC 子集） | feat: spl lyrics |
+| 5 | 专辑封面（kitty/sixel/iterm/halfblock，环境变量检测，tmux 警告） | feat: album cover |
 | 6 | 排序与专辑视图 | feat: sorting and album view |
 | 7 | 播放模式（随机/单曲/列表循环） | feat: playback modes |
-| 8 | 歌单（增删/加入/排序） | feat: playlists |
-| 9 | 频谱可视化 | feat: spectrum visualizer |
-| 10 | 主题（TOML 自定义+深浅色+跟随系统） | feat: theming |
-| 11 | 快捷键自定义 | feat: custom keybindings |
-| 12 | 歌词自动爬取（QQ/网易云/酷狗） | feat: lyric crawling |
-| 13 | 其他逐字格式（YRC/QRC/KRC，暂缓但留接口） | feat: more lyric formats |
+| 8 | 歌单（增删/加入/排序/JSON 持久化） | feat: playlists |
+| 9 | 频谱可视化（PCM tap 扇出 + FFT + 30fps tick） | feat: spectrum visualizer |
+| 10 | 主题（TOML 自定义+深浅色+跟随系统检测+dbus 监听） | feat: theming |
+| 11 | 快捷键自定义（TOML `[keybindings]` 覆盖默认） | feat: custom keybindings |
+| 12 | 歌词自动爬取（**LRCLIB 首选** → QQ → 网易云 → 酷狗） | feat: lyric crawling |
+| 13 | 其他逐字格式（YRC/QRC/KRC，带解密自检） | feat: more lyric formats |
 
 ## 8. 非目标（YAGNI）
 
@@ -427,6 +461,16 @@ type KeyMap struct {
 
 ## 9. 待决策
 
-1. Bubble Tea v2 vs v1：倾向 v2（鼠标+帧率，Go 版本够），但 v2 示例少。→ 交 oracle 评审。
-2. 终端图片库：go-termimg vs goberzurg vs 手写。→ 交 oracle 评审。
-3. ffmpeg seek 重启 vs 其他方案：→ 交 oracle 评审。
+1. ~~Bubble Tea v2 vs v1~~ → **v2**（oracle 确认：greenfield 2026 选 v2，鼠标原生，charmbracelet 前向投入；bubbletea 导入限制在 `ui/` 包）
+2. ~~终端图片库~~ → **手写各协议**（oracle 确认：库的值增薄，bubbletea 集成自己做；环境变量检测无 TTY 查询；sixel 若耗时可换库但只在 Renderer 接口后）
+3. ~~ffmpeg seek 重启~~ → **kill+restart + `-ss`**（oracle 确认：管道流不可 seek，gapless 非目标；强制 oto flush + cmd.Wait 收割 + 客户端位置追踪 + goroutine 同步）
+
+## 10. 非目标补充（oracle Miss-4）
+
+- 播放状态恢复（下次启动恢复上次曲目/位置/音量）——v1 不做，YAGNI
+- 音频均衡器
+- 在线音乐流媒体播放（只爬歌词，不播放在线音频）
+- 歌曲评分/统计
+- 多用户/网络同步
+- 音乐格式转换
+- 歌词编辑/制作
