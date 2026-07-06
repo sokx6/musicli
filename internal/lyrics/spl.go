@@ -161,7 +161,7 @@ func buildWords(src string, tokens []token) ([]Word, int) {
 	endMs := 0
 	for i := 0; i < len(tokens)-1; i++ {
 		text := src[tokens[i].end:tokens[i+1].start]
-		if text == "" || tokens[i].ms >= tokens[i+1].ms {
+		if text == "" || tokens[i].ms > tokens[i+1].ms {
 			continue
 		}
 		words = append(words, Word{Text: text, StartMs: tokens[i].ms, EndMs: tokens[i+1].ms})
