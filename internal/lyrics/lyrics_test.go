@@ -76,6 +76,40 @@ func TestSPLParserParsesWordTimingAndDelayMarkers(t *testing.T) {
 	}
 }
 
+func TestSPLParserKeepsPunctuationWithEqualTimestamps(t *testing.T) {
+	text := `[00:01.550]词[00:01.718]：[00:01.718]い[00:01.886]よ[00:02.038]わ[00:02.198]`
+	got, err := SPLParser{}.Parse(text)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(got.Lines) != 1 {
+		t.Fatalf("lines = %d, want 1", len(got.Lines))
+	}
+	line := got.Lines[0]
+	if line.Text != "词：いよわ" {
+		t.Fatalf("line text = %q, want %q", line.Text, "词：いよわ")
+	}
+	// ： shares timestamp 1718 with い and merges into it so they highlight
+	// together. Result: 4 words, not 5.
+	if len(line.Words) != 4 {
+		t.Fatalf("words = %d, want 4: %#v", len(line.Words), line.Words)
+	}
+	if line.Words[1].Text != "：い" {
+		t.Fatalf("word 1 = %q, want ：い: %#v", line.Words[1].Text, line.Words)
+	}
+	if line.Words[1].StartMs != 1718 || line.Words[1].EndMs != 1886 {
+		t.Fatalf("word 1 timing = %d..%d, want 1718..1886", line.Words[1].StartMs, line.Words[1].EndMs)
+	}
+	// Concatenation of all word texts must equal line.Text.
+	var concat string
+	for _, w := range line.Words {
+		concat += w.Text
+	}
+	if concat != line.Text {
+		t.Fatalf("word concat = %q, line text = %q", concat, line.Text)
+	}
+}
+
 func TestSPLParserMergesSameStartTimedTranslation(t *testing.T) {
 	text := `[00:01.399]ツ[00:01.589]ギ[00:01.739]ハ[00:01.879]ギ[00:02.129]だ[00:02.309]ら[00:02.999]け[00:03.199]の[00:03.949]君[00:04.788]と[00:04.948]の[00:05.158]時[00:05.508]間[00:05.798]も[00:06.368]
 [00:01.399]我们尽是东拼西凑的时光[00:06.540]
