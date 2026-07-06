@@ -257,15 +257,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tickMsg:
-		ended := a.pollEngine()
-		cmds := []tea.Cmd{
+		a.pollEngine()
+		return a, tea.Batch(
 			tickCmd(),
 			func() tea.Msg { return tea.ClearScreen() },
-		}
-		if ended {
-			cmds = append(cmds, a.nextTrack())
-		}
-		return a, tea.Batch(cmds...)
+		)
 
 	case errMsg:
 		fl := a.log.WithFunc("Update")
@@ -281,9 +277,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // pollEngine reads engine state for the UI (oracle Sim-C: polling, no callback).
-// Returns true if the track ended naturally (Playing→Stopped at end), so the
-// caller can auto-advance.
-func (a *App) pollEngine() bool {
+func (a *App) pollEngine() {
 	fl := a.log.WithFunc("pollEngine")
 	a.pos = a.engine.Position()
 	a.dur = a.engine.Duration()
@@ -303,14 +297,6 @@ func (a *App) pollEngine() bool {
 	} else {
 		_ = a.progress.SetPercent(0)
 	}
-	// Detect natural track end: was playing, now stopped, and position
-	// reached near the end (engine clamps position to duration on natural end).
-	if prevState == audio.StatePlaying && a.state == audio.StateStopped &&
-		a.dur > 0 && a.pos >= a.dur-500 {
-		fl.Debug("track ended naturally, auto-advancing")
-		return true
-	}
-	return false
 }
 
 // handleKey processes key messages.
