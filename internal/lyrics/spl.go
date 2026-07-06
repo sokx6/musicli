@@ -159,12 +159,26 @@ func buildLines(src string, tokens []token) ([]Line, bool) {
 func buildWords(src string, tokens []token) ([]Word, int) {
 	words := []Word{}
 	endMs := 0
+	carry := ""
 	for i := 0; i < len(tokens)-1; i++ {
 		text := src[tokens[i].end:tokens[i+1].start]
 		if text == "" || tokens[i].ms > tokens[i+1].ms {
 			continue
 		}
-		words = append(words, Word{Text: text, StartMs: tokens[i].ms, EndMs: tokens[i+1].ms})
+		if tokens[i].ms == tokens[i+1].ms {
+			// Zero-duration segment (e.g. punctuation sharing a timestamp
+			// with the next syllable). Carry its text into the next word
+			// so they highlight together.
+			carry += text
+			continue
+		}
+		words = append(words, Word{Text: carry + text, StartMs: tokens[i].ms, EndMs: tokens[i+1].ms})
+		carry = ""
+	}
+	if carry != "" && len(words) > 0 {
+		// Trailing zero-duration segments with no following word: keep the
+		// text visible by appending to the last word.
+		words[len(words)-1].Text += carry
 	}
 	if len(tokens) > 0 && strings.TrimSpace(src[tokens[len(tokens)-1].end:]) == "" {
 		endMs = tokens[len(tokens)-1].ms

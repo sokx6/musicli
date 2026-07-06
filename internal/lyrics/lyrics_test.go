@@ -89,18 +89,16 @@ func TestSPLParserKeepsPunctuationWithEqualTimestamps(t *testing.T) {
 	if line.Text != "词：いよわ" {
 		t.Fatalf("line text = %q, want %q", line.Text, "词：いよわ")
 	}
-	// All 5 segments should be present as words, including ： which shares
-	// a timestamp with い.
-	if len(line.Words) != 5 {
-		t.Fatalf("words = %d, want 5: %#v", len(line.Words), line.Words)
+	// ： shares timestamp 1718 with い and merges into it so they highlight
+	// together. Result: 4 words, not 5.
+	if len(line.Words) != 4 {
+		t.Fatalf("words = %d, want 4: %#v", len(line.Words), line.Words)
 	}
-	// ： has zero duration (StartMs == EndMs) so it's never individually
-	// highlighted, but it must appear in prefix/suffix when rendering.
-	if line.Words[1].Text != "：" {
-		t.Fatalf("word 1 = %q, want ：: %#v", line.Words[1].Text, line.Words)
+	if line.Words[1].Text != "：い" {
+		t.Fatalf("word 1 = %q, want ：い: %#v", line.Words[1].Text, line.Words)
 	}
-	if line.Words[1].StartMs != 1718 || line.Words[1].EndMs != 1718 {
-		t.Fatalf("word 1 timing = %d..%d, want 1718..1718", line.Words[1].StartMs, line.Words[1].EndMs)
+	if line.Words[1].StartMs != 1718 || line.Words[1].EndMs != 1886 {
+		t.Fatalf("word 1 timing = %d..%d, want 1718..1886", line.Words[1].StartMs, line.Words[1].EndMs)
 	}
 	// Concatenation of all word texts must equal line.Text.
 	var concat string
