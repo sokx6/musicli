@@ -87,6 +87,11 @@ type App struct {
 	volume    int
 	speed     float64
 	errMsg    string
+
+	// lastLyricWord tracks the previously active word index so we can force a
+	// full screen redraw when it changes, bypassing bubbletea's cell diff
+	// engine which mis-handles SGR transitions across CJK wide characters.
+	lastLyricWord int
 }
 
 // New creates the App model. Engine and scanner must be initialised.
@@ -120,20 +125,21 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 	)
 
 	return &App{
-		log:       lg.WithModule("ui"),
-		theme:     t,
-		styles:    styles,
-		keys:      keys,
-		options:   opts,
-		engine:    eng,
-		scanner:   sc,
-		trackList: trackList,
-		delegate:  delegate,
-		progress:  pbar,
-		current:   -1,
-		volume:    80,
-		speed:     1.0,
-		lastState: audio.StateStopped,
+		log:           lg.WithModule("ui"),
+		theme:         t,
+		styles:        styles,
+		keys:          keys,
+		options:       opts,
+		engine:        eng,
+		scanner:       sc,
+		trackList:     trackList,
+		delegate:      delegate,
+		progress:      pbar,
+		current:       -1,
+		volume:        80,
+		speed:         1.0,
+		lastState:     audio.StateStopped,
+		lastLyricWord: -1,
 	}
 }
 
@@ -257,7 +263,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tickMsg:
+		prevWord := a.lastLyricWord
 		a.pollEngine()
+		newWord := a.currentLyricWordIndex()
+		a.lastLyricWord = newWord
+		// When the active word changes, force a full screen redraw to bypass
+		// the diff engine's mishandling of SGR transitions on CJK wide chars.
+		if newWord != prevWord {
+			return a, tea.Batch(tickCmd(), func() tea.Msg { return tea.ClearScreen() })
+		}
 		return a, tickCmd()
 
 	case errMsg:
@@ -527,6 +541,7 @@ func (a *App) loadCurrentLyrics() {
 	fl := a.log.WithFunc("loadCurrentLyrics")
 	a.lyric = nil
 	a.lyricPath = ""
+	a.lastLyricWord = -1
 	if a.current < 0 || a.current >= len(a.tracks) {
 		return
 	}
@@ -712,6 +727,7 @@ func (a *App) View() tea.View {
 	frame := a.styles.doc.Width(a.width).Height(a.height).Render(full)
 
 	v := tea.NewView(frame)
+	v.AltScreen = true
 	v.MouseMode = tea.MouseModeAllMotion
 	return v
 }
@@ -901,6 +917,24 @@ func (a *App) currentLyricLineIndex() int {
 		}
 	}
 	return idx
+}
+
+// currentLyricWordIndex returns the active word index within the current
+// lyric line, or -1 if no word is currently active.
+func (a *App) currentLyricWordIndex() int {
+	if a.lyric == nil || len(a.lyric.Lines) == 0 {
+		return -1
+	}
+	lineIdx := a.currentLyricLineIndex()
+	if lineIdx < 0 || lineIdx >= len(a.lyric.Lines) {
+		return -1
+	}
+	for i, word := range a.lyric.Lines[lineIdx].Words {
+		if word.StartMs <= a.pos && a.pos < word.EndMs {
+			return i
+		}
+	}
+	return -1
 }
 
 func truncateCellText(s string, width int) string {
