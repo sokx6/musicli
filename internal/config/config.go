@@ -176,6 +176,14 @@ func (c *Config) applyDefaults(warnings *[]string) {
 		*warnings = append(*warnings, fmt.Sprintf("cover.scale %q invalid, using fit", c.Cover.Scale))
 		c.Cover.Scale = "fit"
 	}
+	switch c.Cover.Protocol {
+	case "", "auto":
+		c.Cover.Protocol = "auto"
+	case "kitty", "halfblock", "sixel", "iterm":
+	default:
+		*warnings = append(*warnings, fmt.Sprintf("cover.protocol %q invalid, using auto", c.Cover.Protocol))
+		c.Cover.Protocol = "auto"
+	}
 }
 
 // expandPaths resolves ~ and empty path placeholders against XDG dirs.

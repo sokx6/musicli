@@ -108,6 +108,7 @@ func run() error {
 		TrackListMaxWidth: cfg.UI.TrackListMaxWidth,
 		DisableCover:      !cfg.Cover.Show,
 		CoverScale:        cfg.Cover.Scale,
+		CoverProtocol:     cfg.Cover.Protocol,
 	})
 	fl.Info("ui app created")
 

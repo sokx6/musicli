@@ -394,7 +394,7 @@ func TestRenderLeftPaneDoesNotWrapNarrowHighlightedLine(t *testing.T) {
 }
 
 func TestRenderLeftPaneKeepsCoverAndLyricsSeparated(t *testing.T) {
-	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "halfblock"})
 	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{
 		{
 			StartMs: 1000,
@@ -500,6 +500,40 @@ func TestDisableCoverFallsBackToLyrics(t *testing.T) {
 	}
 	if !strings.Contains(plain, "lyrics only") {
 		t.Fatalf("disabled cover should leave lyrics visible:\n%s", plain)
+	}
+}
+
+func TestKittyCoverUsesBlankPlaceholderAndRawImage(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty"})
+	app.coverImage = testCoverImage(4, 4)
+	app.leftContent = leftContentCover
+	app.leftW = 12
+	app.height = 10
+
+	plain := ansi.Strip(app.renderLeftPane())
+	if strings.Contains(plain, "▀") {
+		t.Fatalf("kitty cover pane should reserve blank cells, not halfblock text:\n%s", plain)
+	}
+
+	seq := app.renderKittyCoverOverlay()
+	if !strings.Contains(seq, "\x1b_Ga") {
+		t.Fatalf("kitty overlay missing graphics escape: %q", seq)
+	}
+	if !strings.Contains(seq, "\x1b[3;1H") {
+		t.Fatalf("kitty overlay should target top-left of body: %q", seq)
+	}
+}
+
+func TestLyricsOnlyClearsKittyCover(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty"})
+	app.coverImage = testCoverImage(4, 4)
+	app.leftContent = leftContentLyrics
+	app.leftW = 20
+	app.height = 10
+
+	seq := app.renderKittyCoverOverlay()
+	if seq != "\x1b_Ga=d,d=I,i=1\x1b\\" {
+		t.Fatalf("lyrics-only should clear kitty image only, got %q", seq)
 	}
 }
 

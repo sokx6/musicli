@@ -62,6 +62,7 @@ sort_field = "nonsense"
 track_list_max_width = -1
 [cover]
 scale = "warped"
+protocol = "bad"
 [log]
 level = "wat"
 `
@@ -93,8 +94,11 @@ level = "wat"
 	if c.Cover.Scale != "fit" {
 		t.Errorf("clamped cover scale = %q, want fit", c.Cover.Scale)
 	}
-	if len(warnings) < 7 {
-		t.Errorf("expected >=7 warnings, got %d: %v", len(warnings), warnings)
+	if c.Cover.Protocol != "auto" {
+		t.Errorf("clamped cover protocol = %q, want auto", c.Cover.Protocol)
+	}
+	if len(warnings) < 8 {
+		t.Errorf("expected >=8 warnings, got %d: %v", len(warnings), warnings)
 	}
 }
 

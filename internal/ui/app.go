@@ -58,6 +58,7 @@ type Options struct {
 	TrackListMaxWidth int
 	DisableCover      bool
 	CoverScale        string
+	CoverProtocol     string
 }
 
 type leftContentMode int
@@ -99,8 +100,9 @@ type App struct {
 	lyricPath  string
 	coverImage image.Image
 
-	leftContent leftContentMode
-	coverScale  coverScaleMode
+	leftContent   leftContentMode
+	coverScale    coverScaleMode
+	coverProtocol string
 
 	// playback state mirror (polled from engine)
 	pos       int
@@ -134,6 +136,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 	styles := NewStyles(t)
 	delegate := newListDelegate(t)
 	coverScale := coverScaleFromString(opts.CoverScale)
+	coverProtocol := cover.SelectProtocol(opts.CoverProtocol, os.Getenv)
 
 	trackList := list.New([]list.Item{}, delegate, 40, 20)
 	trackList.Title = "Tracks"
@@ -169,6 +172,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 		speed:           1.0,
 		leftContent:     leftContentBoth,
 		coverScale:      coverScale,
+		coverProtocol:   coverProtocol,
 		lastState:       audio.StateStopped,
 		lastLyricRender: lyricRenderState{line: -1, word: -1},
 	}
@@ -298,13 +302,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.pollEngine()
 		newLyric := a.currentLyricRenderState()
 		a.lastLyricRender = newLyric
+		coverCmd := a.kittyCoverCmd()
 		// When the active lyric cell range changes, force a full screen redraw
 		// to bypass the diff engine's mishandling of SGR transitions on CJK wide
 		// chars.
 		if newLyric != prevLyric {
-			return a, tea.Batch(tickCmd(), func() tea.Msg { return tea.ClearScreen() })
+			return a, tea.Batch(tickCmd(), tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, coverCmd))
 		}
-		return a, tickCmd()
+		return a, tea.Batch(tickCmd(), coverCmd)
 
 	case errMsg:
 		fl := a.log.WithFunc("Update")
@@ -379,12 +384,12 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.ToggleView):
 		fl.Debug("key matched", "key", keyStr, "action", "toggleLeftContent")
 		a.toggleLeftContent()
-		return a, func() tea.Msg { return tea.ClearScreen() }
+		return a, tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, a.kittyCoverCmd())
 
 	case key.Matches(msg, a.keys.ToggleScale):
 		fl.Debug("key matched", "key", keyStr, "action", "toggleCoverScale")
 		a.toggleCoverScale()
-		return a, func() tea.Msg { return tea.ClearScreen() }
+		return a, tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, a.kittyCoverCmd())
 
 	case key.Matches(msg, a.keys.SeekFwd):
 		fl.Debug("key matched", "key", keyStr, "action", "seekRelative+5000")
@@ -492,7 +497,7 @@ func (a *App) playSelected() tea.Cmd {
 	}
 	a.loadCurrentLyrics()
 	a.loadCurrentCover()
-	return nil
+	return a.kittyCoverCmd()
 }
 
 func (a *App) togglePlayPause() tea.Cmd {
@@ -527,7 +532,7 @@ func (a *App) nextTrack() tea.Cmd {
 	}
 	a.loadCurrentLyrics()
 	a.loadCurrentCover()
-	return nil
+	return a.kittyCoverCmd()
 }
 
 func (a *App) prevTrack() tea.Cmd {
@@ -550,7 +555,7 @@ func (a *App) prevTrack() tea.Cmd {
 	}
 	a.loadCurrentLyrics()
 	a.loadCurrentCover()
-	return nil
+	return a.kittyCoverCmd()
 }
 
 func (a *App) toggleLeftContent() {
@@ -585,6 +590,14 @@ func (a *App) coverScaleMode() cover.ScaleMode {
 		return cover.ScaleStretch
 	}
 	return cover.ScaleFit
+}
+
+func (a *App) kittyCoverCmd() tea.Cmd {
+	seq := a.renderKittyCoverOverlay()
+	if seq == "" {
+		return nil
+	}
+	return tea.Raw(seq)
 }
 
 func (a *App) seekRelative(deltaMs int) tea.Cmd {
@@ -927,7 +940,50 @@ func (a *App) renderCoverPane(w, h int) string {
 	if a.coverImage == nil {
 		return fitBlock(lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, a.styles.muted.Render("[ cover ]")), w, h)
 	}
+	if a.coverProtocol == cover.ProtocolKitty {
+		return fitBlock("", w, h)
+	}
 	return fitBlock(cover.RenderHalfBlockWithScale(a.coverImage, w, h, a.coverScaleMode()), w, h)
+}
+
+func (a *App) renderKittyCoverOverlay() string {
+	const kittyImageID = 1
+	if a.coverProtocol != cover.ProtocolKitty || a.options.DisableCover {
+		return ""
+	}
+	if a.leftContent == leftContentLyrics || a.coverImage == nil {
+		return cover.ClearKittyImage(kittyImageID)
+	}
+
+	w := a.leftPaneWidth() - a.styles.leftPane.GetHorizontalFrameSize()
+	h := a.bodyHeight() - a.styles.leftPane.GetVerticalFrameSize()
+	if w < 1 || h < 1 {
+		return cover.ClearKittyImage(kittyImageID)
+	}
+
+	x := 1
+	y := 3 // top bar content + bottom border + 1-based terminal row.
+	coverW := w
+	if a.leftContent == leftContentBoth && w >= 12 {
+		coverW = w / 2
+	}
+	if coverW < 1 {
+		return cover.ClearKittyImage(kittyImageID)
+	}
+
+	seq, err := cover.RenderKitty(a.coverImage, cover.KittyPlacement{
+		ID:     kittyImageID,
+		X:      x,
+		Y:      y,
+		Width:  coverW,
+		Height: h,
+		Scale:  a.coverScaleMode(),
+	})
+	if err != nil {
+		a.log.WithFunc("renderKittyCoverOverlay").Warn("kitty cover render failed", "err", err)
+		return cover.ClearKittyImage(kittyImageID)
+	}
+	return seq
 }
 
 func (a *App) renderLyricsPane(w, h int) string {
