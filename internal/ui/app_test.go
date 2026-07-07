@@ -307,6 +307,44 @@ func TestRenderCurrentLyricLineKeepsWideTextStable(t *testing.T) {
 	}
 }
 
+func TestRenderCurrentLyricLineDoesNotRevealClippedActiveWord(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	line := lyrics.Line{
+		Text: "ツギハギだらけの君との時間も",
+		Words: []lyrics.Word{
+			{Text: "ツ", StartMs: 1000, EndMs: 1100},
+			{Text: "ギ", StartMs: 1100, EndMs: 1200},
+			{Text: "ハ", StartMs: 1200, EndMs: 1300},
+			{Text: "ギ", StartMs: 1300, EndMs: 1400},
+			{Text: "だ", StartMs: 1400, EndMs: 1500},
+			{Text: "ら", StartMs: 1500, EndMs: 1600},
+			{Text: "け", StartMs: 1600, EndMs: 1700},
+			{Text: "の", StartMs: 1700, EndMs: 1800},
+			{Text: "君", StartMs: 1800, EndMs: 2400},
+			{Text: "と", StartMs: 2400, EndMs: 3000},
+			{Text: "の", StartMs: 3000, EndMs: 3100},
+		},
+	}
+
+	app.pos = 1200 // Active word "ハ" has only one visible cell left.
+	rendered := app.renderCurrentLyricLine(line, 5)
+	plain := ansi.Strip(rendered)
+	expected := app.styles.muted.Render(truncateCellText(line.Text, 5))
+
+	if got := ansi.StringWidth(rendered); got != 5 {
+		t.Fatalf("rendered width = %d, want 5: %q", got, rendered)
+	}
+	if strings.Contains(plain, "ハ") {
+		t.Fatalf("clipped active word became visible: %q", plain)
+	}
+	if !strings.Contains(plain, "…") {
+		t.Fatalf("clipped line should still show truncation marker: %q", plain)
+	}
+	if rendered != expected {
+		t.Fatalf("clipped active word should not render its own highlighted segment:\ngot  %q\nwant %q", rendered, expected)
+	}
+}
+
 func TestLyricRenderStateChangesWhenLineChangesWithSameWordIndex(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{

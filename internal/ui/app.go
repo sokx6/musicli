@@ -877,6 +877,9 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 	prefix := wordsText(line.Words[:current])
 	active := line.Words[current].Text
 	suffix := wordsText(line.Words[current+1:])
+	if ansi.StringWidth(prefix)+ansi.StringWidth(active) > width {
+		return padCellText(muted.Styled(truncateCellText(line.Text, width)), width)
+	}
 
 	var b strings.Builder
 	remaining := width
