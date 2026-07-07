@@ -23,6 +23,9 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	if c.UI.TrackListMaxWidth != 80 {
 		t.Errorf("default track_list_max_width = %d, want 80", c.UI.TrackListMaxWidth)
 	}
+	if c.Cover.Scale != "fit" {
+		t.Errorf("default cover scale = %q, want fit", c.Cover.Scale)
+	}
 }
 
 func TestLoadCreatesDefaultOnFirstRun(t *testing.T) {
@@ -57,6 +60,8 @@ repeat = "bogus"
 sort_field = "nonsense"
 [ui]
 track_list_max_width = -1
+[cover]
+scale = "warped"
 [log]
 level = "wat"
 `
@@ -85,8 +90,11 @@ level = "wat"
 	if c.UI.TrackListMaxWidth != 0 {
 		t.Errorf("clamped track_list_max_width = %d, want 0", c.UI.TrackListMaxWidth)
 	}
-	if len(warnings) < 6 {
-		t.Errorf("expected >=6 warnings, got %d: %v", len(warnings), warnings)
+	if c.Cover.Scale != "fit" {
+		t.Errorf("clamped cover scale = %q, want fit", c.Cover.Scale)
+	}
+	if len(warnings) < 7 {
+		t.Errorf("expected >=7 warnings, got %d: %v", len(warnings), warnings)
 	}
 }
 

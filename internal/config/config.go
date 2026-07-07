@@ -54,6 +54,7 @@ type Lyrics struct {
 type Cover struct {
 	Show     bool   `toml:"show"`
 	Protocol string `toml:"protocol"`
+	Scale    string `toml:"scale"`
 }
 
 type Theme struct {
@@ -166,6 +167,14 @@ func (c *Config) applyDefaults(warnings *[]string) {
 	if c.UI.TrackListMaxWidth < 0 {
 		*warnings = append(*warnings, fmt.Sprintf("ui.track_list_max_width %d out of range, using 0", c.UI.TrackListMaxWidth))
 		c.UI.TrackListMaxWidth = 0
+	}
+	switch c.Cover.Scale {
+	case "", "fit":
+		c.Cover.Scale = "fit"
+	case "stretch":
+	default:
+		*warnings = append(*warnings, fmt.Sprintf("cover.scale %q invalid, using fit", c.Cover.Scale))
+		c.Cover.Scale = "fit"
 	}
 }
 

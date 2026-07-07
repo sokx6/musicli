@@ -35,6 +35,53 @@ func TestHalfBlockRendererStaysWithinBounds(t *testing.T) {
 	}
 }
 
+func TestHalfBlockRendererFitPreservesAspectRatio(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 4, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 4; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: uint8(y * 24), B: uint8(x * 48), A: 255})
+		}
+	}
+
+	rendered := RenderHalfBlockWithScale(img, 8, 4, ScaleFit)
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != 4 {
+		t.Fatalf("height = %d, want 4:\n%q", len(lines), rendered)
+	}
+	for i, line := range lines {
+		if got := ansi.StringWidth(line); got != 8 {
+			t.Fatalf("line %d width = %d, want 8: %q", i, got, line)
+		}
+	}
+	plain := ansi.Strip(rendered)
+	if strings.Contains(plain, "▀▀▀▀▀▀▀▀") {
+		t.Fatalf("fit mode should not stretch narrow artwork across full width:\n%s", plain)
+	}
+	if !strings.Contains(plain, "  ▀▀▀▀  ") {
+		t.Fatalf("fit mode should center narrower artwork with padding:\n%s", plain)
+	}
+	for _, line := range lines {
+		if strings.HasSuffix(line, "\x1b[0m") {
+			t.Fatalf("fit mode should reset style before right padding, not after it: %q", line)
+		}
+	}
+}
+
+func TestHalfBlockRendererStretchFillsBounds(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 4, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 4; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: uint8(y * 24), B: uint8(x * 48), A: 255})
+		}
+	}
+
+	rendered := RenderHalfBlockWithScale(img, 8, 4, ScaleStretch)
+	plain := ansi.Strip(rendered)
+	if !strings.Contains(plain, "▀▀▀▀▀▀▀▀") {
+		t.Fatalf("stretch mode should fill full width:\n%s", plain)
+	}
+}
+
 func TestHalfBlockRendererHandlesEmptyBounds(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	if got := RenderHalfBlock(img, 0, 3); got != "" {

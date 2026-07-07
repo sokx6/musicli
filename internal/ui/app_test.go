@@ -460,6 +460,32 @@ func TestToggleLeftContentModeCyclesCoverLyricsBoth(t *testing.T) {
 	}
 }
 
+func TestToggleCoverScaleCyclesFitStretch(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	if app.coverScale != coverScaleFit {
+		t.Fatalf("initial cover scale = %v, want fit", app.coverScale)
+	}
+
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Text: "c", Code: 'c'}))
+	if app.coverScale != coverScaleStretch {
+		t.Fatalf("after first toggle = %v, want stretch", app.coverScale)
+	}
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Text: "c", Code: 'c'}))
+	if app.coverScale != coverScaleFit {
+		t.Fatalf("after second toggle = %v, want fit", app.coverScale)
+	}
+	if app.leftContent != leftContentBoth {
+		t.Fatalf("cover scale toggle should not change left content mode: %v", app.leftContent)
+	}
+}
+
+func TestConfiguredCoverScaleSetsInitialMode(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverScale: "stretch"})
+	if app.coverScale != coverScaleStretch {
+		t.Fatalf("initial cover scale = %v, want stretch", app.coverScale)
+	}
+}
+
 func TestDisableCoverFallsBackToLyrics(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{DisableCover: true})
 	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{{StartMs: 0, EndMs: 1000, Text: "lyrics only"}}}

@@ -57,6 +57,7 @@ type Options struct {
 	// TrackListMaxWidth caps the content-fit track list width. Zero means no cap.
 	TrackListMaxWidth int
 	DisableCover      bool
+	CoverScale        string
 }
 
 type leftContentMode int
@@ -65,6 +66,13 @@ const (
 	leftContentBoth leftContentMode = iota
 	leftContentCover
 	leftContentLyrics
+)
+
+type coverScaleMode int
+
+const (
+	coverScaleFit coverScaleMode = iota
+	coverScaleStretch
 )
 
 // App is the top-level bubbletea model.
@@ -92,6 +100,7 @@ type App struct {
 	coverImage image.Image
 
 	leftContent leftContentMode
+	coverScale  coverScaleMode
 
 	// playback state mirror (polled from engine)
 	pos       int
@@ -124,6 +133,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 	keys := defaultKeyMap()
 	styles := NewStyles(t)
 	delegate := newListDelegate(t)
+	coverScale := coverScaleFromString(opts.CoverScale)
 
 	trackList := list.New([]list.Item{}, delegate, 40, 20)
 	trackList.Title = "Tracks"
@@ -140,7 +150,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 		"engine", eng != nil,
 		"scanner", sc != nil,
 		"theme_mode", t.Mode,
-		"keybindings", 13,
+		"keybindings", 14,
 	)
 
 	return &App{
@@ -158,6 +168,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 		volume:          80,
 		speed:           1.0,
 		leftContent:     leftContentBoth,
+		coverScale:      coverScale,
 		lastState:       audio.StateStopped,
 		lastLyricRender: lyricRenderState{line: -1, word: -1},
 	}
@@ -370,6 +381,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.toggleLeftContent()
 		return a, func() tea.Msg { return tea.ClearScreen() }
 
+	case key.Matches(msg, a.keys.ToggleScale):
+		fl.Debug("key matched", "key", keyStr, "action", "toggleCoverScale")
+		a.toggleCoverScale()
+		return a, func() tea.Msg { return tea.ClearScreen() }
+
 	case key.Matches(msg, a.keys.SeekFwd):
 		fl.Debug("key matched", "key", keyStr, "action", "seekRelative+5000")
 		return a, a.seekRelative(5000)
@@ -546,6 +562,29 @@ func (a *App) toggleLeftContent() {
 	default:
 		a.leftContent = leftContentBoth
 	}
+}
+
+func (a *App) toggleCoverScale() {
+	switch a.coverScale {
+	case coverScaleFit:
+		a.coverScale = coverScaleStretch
+	default:
+		a.coverScale = coverScaleFit
+	}
+}
+
+func coverScaleFromString(s string) coverScaleMode {
+	if s == "stretch" {
+		return coverScaleStretch
+	}
+	return coverScaleFit
+}
+
+func (a *App) coverScaleMode() cover.ScaleMode {
+	if a.coverScale == coverScaleStretch {
+		return cover.ScaleStretch
+	}
+	return cover.ScaleFit
 }
 
 func (a *App) seekRelative(deltaMs int) tea.Cmd {
@@ -888,7 +927,7 @@ func (a *App) renderCoverPane(w, h int) string {
 	if a.coverImage == nil {
 		return fitBlock(lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, a.styles.muted.Render("[ cover ]")), w, h)
 	}
-	return fitBlock(cover.RenderHalfBlock(a.coverImage, w, h), w, h)
+	return fitBlock(cover.RenderHalfBlockWithScale(a.coverImage, w, h, a.coverScaleMode()), w, h)
 }
 
 func (a *App) renderLyricsPane(w, h int) string {
@@ -1143,7 +1182,7 @@ func (a *App) renderPlayerBar() string {
 }
 
 func (a *App) helpLine() string {
-	return "q quit  ⏎ play  ␣ pause  n/b next/prev  v view  ←→ seek  +- vol  [] speed  / filter"
+	return "q quit  ⏎ play  ␣ pause  n/b next/prev  v view  c scale  ←→ seek  +- vol  [] speed  / filter"
 }
 
 // fmtDuration formats ms duration as M:SS or H:MM:SS.

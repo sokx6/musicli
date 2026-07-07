@@ -16,6 +16,14 @@ import (
 	"github.com/dhowden/tag"
 )
 
+// ScaleMode controls how artwork maps into the available terminal cells.
+type ScaleMode string
+
+const (
+	ScaleFit     ScaleMode = "fit"
+	ScaleStretch ScaleMode = "stretch"
+)
+
 // Extract loads album art for an audio file. It prefers embedded tag artwork
 // and falls back to common image names in the same directory.
 func Extract(path string) (image.Image, error) {
@@ -102,24 +110,81 @@ func decodeImageFile(path string) (image.Image, error) {
 // cells. The output is exactly width cells by height rows unless width or
 // height is zero.
 func RenderHalfBlock(img image.Image, width, height int) string {
+	return RenderHalfBlockWithScale(img, width, height, ScaleStretch)
+}
+
+// RenderHalfBlockWithScale renders an image as terminal text using upper-half
+// block cells. Fit mode preserves the image aspect ratio and centers it inside
+// the requested bounds; stretch mode fills the full bounds.
+func RenderHalfBlockWithScale(img image.Image, width, height int, mode ScaleMode) string {
 	if img == nil || width <= 0 || height <= 0 {
 		return ""
 	}
+	drawW, drawH := coverDrawSize(img.Bounds(), width, height, mode)
+	offsetX := (width - drawW) / 2
+	offsetY := (height - drawH) / 2
 
 	var b strings.Builder
 	for row := 0; row < height; row++ {
 		if row > 0 {
 			b.WriteByte('\n')
 		}
+		styled := false
 		for col := 0; col < width; col++ {
-			top := sample(img, col, row*2, width, height*2)
-			bottom := sample(img, col, row*2+1, width, height*2)
+			if col < offsetX || col >= offsetX+drawW || row < offsetY || row >= offsetY+drawH {
+				if styled {
+					b.WriteString("\x1b[0m")
+					styled = false
+				}
+				b.WriteByte(' ')
+				continue
+			}
+			localX := col - offsetX
+			localY := row - offsetY
+			top := sample(img, localX, localY*2, drawW, drawH*2)
+			bottom := sample(img, localX, localY*2+1, drawW, drawH*2)
 			b.WriteString(sgr(top, bottom))
 			b.WriteRune('▀')
+			styled = true
 		}
-		b.WriteString("\x1b[0m")
+		if styled {
+			b.WriteString("\x1b[0m")
+		}
 	}
 	return b.String()
+}
+
+func coverDrawSize(bounds image.Rectangle, width, height int, mode ScaleMode) (int, int) {
+	if mode == ScaleStretch {
+		return width, height
+	}
+	imgW := bounds.Dx()
+	imgH := bounds.Dy()
+	if imgW <= 0 || imgH <= 0 {
+		return width, height
+	}
+
+	terminalPixelH := height * 2
+	drawW := width
+	drawPixelH := imgH * drawW / imgW
+	if drawPixelH > terminalPixelH {
+		drawPixelH = terminalPixelH
+		drawW = imgW * drawPixelH / imgH
+	}
+	drawH := (drawPixelH + 1) / 2
+	if drawW < 1 {
+		drawW = 1
+	}
+	if drawH < 1 {
+		drawH = 1
+	}
+	if drawW > width {
+		drawW = width
+	}
+	if drawH > height {
+		drawH = height
+	}
+	return drawW, drawH
 }
 
 func sample(img image.Image, x, y, width, height int) color.RGBA {

@@ -62,6 +62,7 @@ func run() error {
 		"lyrics.save_dir", cfg.Lyrics.SaveDir,
 		"cover.show", cfg.Cover.Show,
 		"cover.protocol", cfg.Cover.Protocol,
+		"cover.scale", cfg.Cover.Scale,
 		"theme.mode", cfg.Theme.Mode,
 		"theme.name", cfg.Theme.Name,
 		"ui.track_list_max_width", cfg.UI.TrackListMaxWidth,
@@ -106,6 +107,7 @@ func run() error {
 	app := ui.NewWithOptions(eng, sc, t, logger, ui.Options{
 		TrackListMaxWidth: cfg.UI.TrackListMaxWidth,
 		DisableCover:      !cfg.Cover.Show,
+		CoverScale:        cfg.Cover.Scale,
 	})
 	fl.Info("ui app created")
 

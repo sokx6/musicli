@@ -23,6 +23,7 @@ save_dir = ""        # empty = ~/.cache/musicli/lyrics
 [cover]
 show = true
 protocol = "auto"    # auto | kitty | sixel | iterm | halfblock
+scale = "fit"        # fit | stretch
 
 [theme]
 mode = "auto"        # auto | dark | light
