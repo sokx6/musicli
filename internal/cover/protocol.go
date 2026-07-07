@@ -14,6 +14,9 @@ const (
 	ProtocolAuto      = "auto"
 	ProtocolHalfBlock = "halfblock"
 	ProtocolKitty     = "kitty"
+
+	kittyCellPixelWidth  = 10
+	kittyCellPixelHeight = 20
 )
 
 // SelectProtocol resolves a configured protocol using environment values.
@@ -71,25 +74,27 @@ func RenderKitty(img image.Image, placement KittyPlacement) (string, error) {
 	var b strings.Builder
 	b.WriteString(ClearKittyImage(placement.ID))
 	b.WriteString(fmt.Sprintf("\x1b[%d;%dH", placement.Y, placement.X))
-	b.WriteString(fmt.Sprintf("\x1b_Ga=T,t=d,f=100,i=%d,c=%d,r=%d;", placement.ID, placement.Width, placement.Height))
+	b.WriteString(fmt.Sprintf("\x1b_Ga=T,t=d,f=100,i=%d,c=%d,r=%d,z=1;", placement.ID, placement.Width, placement.Height))
 	b.WriteString(payload)
 	b.WriteString("\x1b\\")
 	return b.String(), nil
 }
 
 func imageCanvas(img image.Image, width, height int, scale ScaleMode) image.Image {
-	drawW, drawH := coverDrawSize(img.Bounds(), width, height, scale)
-	canvas := image.NewRGBA(image.Rect(0, 0, width, height*2))
+	canvasW := width * kittyCellPixelWidth
+	canvasH := height * kittyCellPixelHeight
+	drawW, drawH := coverDrawSize(img.Bounds(), canvasW, canvasH, scale)
+	canvas := image.NewRGBA(image.Rect(0, 0, canvasW, canvasH))
 	for y := canvas.Bounds().Min.Y; y < canvas.Bounds().Max.Y; y++ {
 		for x := canvas.Bounds().Min.X; x < canvas.Bounds().Max.X; x++ {
 			canvas.Set(x, y, color.RGBA{A: 255})
 		}
 	}
-	offsetX := (width - drawW) / 2
-	offsetY := (height - drawH) / 2
-	for row := 0; row < drawH*2; row++ {
+	offsetX := (canvasW - drawW) / 2
+	offsetY := (canvasH - drawH) / 2
+	for row := 0; row < drawH; row++ {
 		for col := 0; col < drawW; col++ {
-			canvas.Set(offsetX+col, offsetY*2+row, sample(img, col, row, drawW, drawH*2))
+			canvas.Set(offsetX+col, offsetY+row, sample(img, col, row, drawW, drawH))
 		}
 	}
 	return canvas

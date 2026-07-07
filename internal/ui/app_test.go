@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"os"
@@ -584,6 +585,22 @@ func TestClearScreenForcesKittyCoverRedraw(t *testing.T) {
 	}
 	if cmd := app.clearScreenAndKittyCoverCmd(); cmd == nil {
 		t.Fatal("clear screen should force kitty redraw")
+	}
+}
+
+func TestKittyLyricChangeDoesNotClearScreen(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty"})
+	app.coverImage = testCoverImage(4, 4)
+	app.leftW = 20
+	app.height = 10
+
+	cmd := app.lyricChangeCmd()
+	if cmd == nil {
+		t.Fatal("lyric change should return a command")
+	}
+	msg := cmd()
+	if fmt.Sprintf("%T", msg) == "tea.clearScreenMsg" {
+		t.Fatalf("kitty lyric changes must not clear screen")
 	}
 }
 

@@ -58,7 +58,7 @@ func TestKittyRenderSequenceContainsDeletePositionAndPayload(t *testing.T) {
 	if !strings.Contains(seq, "\x1b[4;3H") {
 		t.Fatalf("sequence missing 1-based cursor position: %q", seq)
 	}
-	if !strings.Contains(seq, "\x1b_Ga=T,t=d,f=100,i=42,c=5,r=6;") {
+	if !strings.Contains(seq, "\x1b_Ga=T,t=d,f=100,i=42,c=5,r=6,z=1;") {
 		t.Fatalf("sequence missing kitty transmit header: %q", seq)
 	}
 	payload := seq[strings.LastIndex(seq, ";")+1 : strings.LastIndex(seq, "\x1b\\")]
@@ -95,8 +95,8 @@ func TestKittyRenderResamplesToCellPixelCanvas(t *testing.T) {
 	if err != nil {
 		t.Fatalf("payload is not png: %v", err)
 	}
-	if decoded.Bounds().Dx() != 5 || decoded.Bounds().Dy() != 12 {
-		t.Fatalf("decoded bounds = %v, want 5x12", decoded.Bounds())
+	if decoded.Bounds().Dx() != 50 || decoded.Bounds().Dy() != 120 {
+		t.Fatalf("decoded bounds = %v, want 50x120", decoded.Bounds())
 	}
 }
 

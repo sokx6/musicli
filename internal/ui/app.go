@@ -307,7 +307,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// to bypass the diff engine's mishandling of SGR transitions on CJK wide
 		// chars.
 		if newLyric != prevLyric {
-			return a, tea.Batch(tickCmd(), a.clearScreenAndKittyCoverCmd())
+			return a, tea.Batch(tickCmd(), a.lyricChangeCmd())
 		}
 		return a, tea.Batch(tickCmd(), a.kittyCoverCmd())
 
@@ -604,6 +604,13 @@ func (a *App) kittyCoverCmd() tea.Cmd {
 func (a *App) clearScreenAndKittyCoverCmd() tea.Cmd {
 	a.lastKittyCover = ""
 	return tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, a.kittyCoverCmd())
+}
+
+func (a *App) lyricChangeCmd() tea.Cmd {
+	if a.coverProtocol == cover.ProtocolKitty {
+		return a.kittyCoverCmd()
+	}
+	return a.clearScreenAndKittyCoverCmd()
 }
 
 func (a *App) seekRelative(deltaMs int) tea.Cmd {
