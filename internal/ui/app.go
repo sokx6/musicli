@@ -88,10 +88,15 @@ type App struct {
 	speed     float64
 	errMsg    string
 
-	// lastLyricWord tracks the previously active word index so we can force a
-	// full screen redraw when it changes, bypassing bubbletea's cell diff
-	// engine which mis-handles SGR transitions across CJK wide characters.
-	lastLyricWord int
+	// lastLyricRender tracks the previously active lyric line and word so we
+	// can force a full screen redraw when either changes, bypassing bubbletea's
+	// cell diff engine which mis-handles SGR transitions across CJK wide chars.
+	lastLyricRender lyricRenderState
+}
+
+type lyricRenderState struct {
+	line int
+	word int
 }
 
 // New creates the App model. Engine and scanner must be initialised.
@@ -125,21 +130,21 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 	)
 
 	return &App{
-		log:           lg.WithModule("ui"),
-		theme:         t,
-		styles:        styles,
-		keys:          keys,
-		options:       opts,
-		engine:        eng,
-		scanner:       sc,
-		trackList:     trackList,
-		delegate:      delegate,
-		progress:      pbar,
-		current:       -1,
-		volume:        80,
-		speed:         1.0,
-		lastState:     audio.StateStopped,
-		lastLyricWord: -1,
+		log:             lg.WithModule("ui"),
+		theme:           t,
+		styles:          styles,
+		keys:            keys,
+		options:         opts,
+		engine:          eng,
+		scanner:         sc,
+		trackList:       trackList,
+		delegate:        delegate,
+		progress:        pbar,
+		current:         -1,
+		volume:          80,
+		speed:           1.0,
+		lastState:       audio.StateStopped,
+		lastLyricRender: lyricRenderState{line: -1, word: -1},
 	}
 }
 
@@ -263,13 +268,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tickMsg:
-		prevWord := a.lastLyricWord
+		prevLyric := a.lastLyricRender
 		a.pollEngine()
-		newWord := a.currentLyricWordIndex()
-		a.lastLyricWord = newWord
-		// When the active word changes, force a full screen redraw to bypass
-		// the diff engine's mishandling of SGR transitions on CJK wide chars.
-		if newWord != prevWord {
+		newLyric := a.currentLyricRenderState()
+		a.lastLyricRender = newLyric
+		// When the active lyric cell range changes, force a full screen redraw
+		// to bypass the diff engine's mishandling of SGR transitions on CJK wide
+		// chars.
+		if newLyric != prevLyric {
 			return a, tea.Batch(tickCmd(), func() tea.Msg { return tea.ClearScreen() })
 		}
 		return a, tickCmd()
@@ -541,7 +547,7 @@ func (a *App) loadCurrentLyrics() {
 	fl := a.log.WithFunc("loadCurrentLyrics")
 	a.lyric = nil
 	a.lyricPath = ""
-	a.lastLyricWord = -1
+	a.lastLyricRender = lyricRenderState{line: -1, word: -1}
 	if a.current < 0 || a.current >= len(a.tracks) {
 		return
 	}
@@ -922,19 +928,25 @@ func (a *App) currentLyricLineIndex() int {
 // currentLyricWordIndex returns the active word index within the current
 // lyric line, or -1 if no word is currently active.
 func (a *App) currentLyricWordIndex() int {
+	return a.currentLyricRenderState().word
+}
+
+// currentLyricRenderState returns the active lyric line and word indexes.
+// The word index is -1 if no word is currently active.
+func (a *App) currentLyricRenderState() lyricRenderState {
 	if a.lyric == nil || len(a.lyric.Lines) == 0 {
-		return -1
+		return lyricRenderState{line: -1, word: -1}
 	}
 	lineIdx := a.currentLyricLineIndex()
 	if lineIdx < 0 || lineIdx >= len(a.lyric.Lines) {
-		return -1
+		return lyricRenderState{line: -1, word: -1}
 	}
 	for i, word := range a.lyric.Lines[lineIdx].Words {
 		if word.StartMs <= a.pos && a.pos < word.EndMs {
-			return i
+			return lyricRenderState{line: lineIdx, word: i}
 		}
 	}
-	return -1
+	return lyricRenderState{line: lineIdx, word: -1}
 }
 
 func truncateCellText(s string, width int) string {

@@ -263,6 +263,43 @@ func TestRenderCurrentLyricLineKeepsWideTextStable(t *testing.T) {
 	}
 }
 
+func TestLyricRenderStateChangesWhenLineChangesWithSameWordIndex(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{
+		{
+			StartMs: 1000,
+			EndMs:   2000,
+			Text:    "君",
+			Words: []lyrics.Word{
+				{Text: "君", StartMs: 1000, EndMs: 2000},
+			},
+		},
+		{
+			StartMs: 2000,
+			EndMs:   3000,
+			Text:    "と",
+			Words: []lyrics.Word{
+				{Text: "と", StartMs: 2000, EndMs: 3000},
+			},
+		},
+	}}
+
+	app.pos = 1000
+	first := app.currentLyricRenderState()
+	app.pos = 2000
+	second := app.currentLyricRenderState()
+
+	if first == second {
+		t.Fatalf("lyric render state should change on line boundary with same word index: %#v", first)
+	}
+	if first.word != 0 || second.word != 0 {
+		t.Fatalf("test setup expected both active word indexes to be 0: first=%#v second=%#v", first, second)
+	}
+	if first.line != 0 || second.line != 1 {
+		t.Fatalf("line indexes = %d, %d; want 0, 1", first.line, second.line)
+	}
+}
+
 var ansiRE = regexp.MustCompile(`\x1b\[[0-9;:]*[A-Za-z]`)
 
 func stripANSI(s string) string {

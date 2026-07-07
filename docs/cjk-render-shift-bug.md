@@ -66,7 +66,9 @@ type Cell struct {
 ```
 
 CJK 字符（如「ツ」）width=2，占两列：cell N 存字符，cell N+1 是
-width=0 的 placeholder，标记「此列属于左边的宽字符，不可单独写入」。
+`Cell{}`（width=0）的 placeholder，标记「此列属于左边的宽字符，
+不可单独写入」。当前 ultraviolet 不会把左侧宽字符的样式复制到
+placeholder。
 
 ASCII 字符（如空格）width=1，占一列。
 
@@ -76,33 +78,33 @@ ASCII 字符（如空格）width=1，占一列。
 位置  内容   宽度  样式      说明
 ──────────────────────────────────────────
  0    ツ     2    muted     ┐ CJK 宽字符
- 1    (空)   0    muted     ┘ placeholder（width=0）
+ 1    (空)   0    none      ┘ placeholder（width=0）
  2    ギ     2    muted     ┐
- 3    (空)   0    muted     ┘
+ 3    (空)   0    none      ┘
  4    ハ     2    muted     ┐
- 5    (空)   0    muted     ┘
+ 5    (空)   0    none      ┘
  6    ギ     2    muted     ┐
- 7    (空)   0    muted     ┘
+ 7    (空)   0    none      ┘
  8    だ     2    muted     ┐
- 9    (空)   0    muted     ┘
+ 9    (空)   0    none      ┘
 10    ら     2    muted     ┐
-11    (空)   0    muted     ┘
+11    (空)   0    none      ┘
 12    け     2    muted     ┐
-13    (空)   0    muted     ┘
+13    (空)   0    none      ┘
 14    の     2    muted     ┐
-15    (空)   0    muted     ┘
+15    (空)   0    none      ┘
 16    君     2    accent    ┐ ← 高亮段开始
-17    (空)   0    accent    ┘ ← placeholder 也带 accent
+17    (空)   0    none      ┘ ← placeholder 是 Cell{}，不带样式
 18    と     2    muted     ┐
-19    (空)   0    muted     ┘
+19    (空)   0    none      ┘
 20    の     2    muted     ┐
-21    (空)   0    muted     ┘
+21    (空)   0    none      ┘
 22    時     2    muted     ┐
-23    (空)   0    muted     ┘
+23    (空)   0    none      ┘
 24    間     2    muted     ┐
-25    (空)   0    muted     ┘
+25    (空)   0    none      ┘
 26    も     2    muted     ┐
-27    (空)   0    muted     ┘
+27    (空)   0    none      ┘
 28    ' '    1    none      ← ASCII 空格填充
 29    ' '    1    none      ← ASCII 空格填充
 ```
@@ -113,13 +115,14 @@ ASCII 字符（如空格）width=1，占一列。
 位置  帧A样式   帧B样式   变化
 ──────────────────────────────
 16    accent    muted    ← 变
-17    accent    muted    ← 变
+17    none      none     ← 不写入
 18    muted     accent   ← 变
-19    muted     accent   ← 变
+19    none      none     ← 不写入
 ```
 
-4 个 cell 的字符内容不变，只有样式（颜色）变了。accent 段从位置
-16-17 右移到 18-19，移动了 2 列（一个 CJK 字符宽）。
+2 个可写 cell 的字符内容不变，只有样式（颜色）变了。accent 段从
+「君」右移到「と」，移动了 2 列（一个 CJK 字符宽）。placeholder 本身
+仍参与宽字符边界判断，但不会被写到终端。
 
 ### 3. TerminalRenderer.transformLine() 做 cell diff
 
@@ -261,7 +264,7 @@ CJK 字符 width=2，`cur.X += 2`。placeholder width=0，`putAttrCell`
 `cellEqual` 全部返回 true，`transformLine` 直接 return，不触发光标
 移动。偏差无法被观察到。
 
-只有高亮词切换时（君→と），4 个 cell 样式变化，diff 引擎需要移动
+只有高亮词切换时（君→と），相关可写 cell 样式变化，diff 引擎需要移动
 光标到位置 16 并重画。此时相对移动带着积累的偏差走，字符画到错误
 列，「の」被覆盖消失。
 
@@ -313,16 +316,16 @@ v.AltScreen = true
 但短距离（≤7 列，`notLocal` 阈值）仍走相对移动。歌词 diff 范围
 4-6 列，在此范围内，光靠 alt screen 不足以消除偏差。
 
-### 第二层：高亮换词时强制全屏重绘
+### 第二层：歌词行或高亮词变化时强制全屏重绘
 
 ```go
 // internal/ui/app.go Update() tickMsg 分支
 case tickMsg:
-    prevWord := a.lastLyricWord
+    prevLyric := a.lastLyricRender
     a.pollEngine()
-    newWord := a.currentLyricWordIndex()
-    a.lastLyricWord = newWord
-    if newWord != prevWord {
+    newLyric := a.currentLyricRenderState()
+    a.lastLyricRender = newLyric
+    if newLyric != prevLyric {
         return a, tea.Batch(tickCmd(), func() tea.Msg { return tea.ClearScreen() })
     }
     return a, tickCmd()
@@ -356,7 +359,8 @@ cell 全是空白，new cell 是歌词字符，`cellEqual` **全部返回 false*
 不存在「跳过相同 cell」的优化，整行从位置 0 开始逐个 cell 输出，光标
 连续前进，不依赖 `s.cur.X` 的历史状态。
 
-**等价于每帧都是首帧**，没有积累偏差的机会。
+对触发清屏的换行/换词帧来说，这等价于首帧式重画；未变化的 tick 仍走
+正常 diff 路径。
 
 ### 为什么不闪烁
 
@@ -415,8 +419,8 @@ event loop 处理 `tickMsg` 后立刻返回 `clearScreen` 命令。
 
 **关键区别**：成功的修复是 **alt screen + ClearScreen 组合**。
 - alt screen 提供绝对定位（长距离）和 synchronized output 基础设施
-- ClearScreen 绕过 diff 引擎（`curbuf` 全填空白，`cellEqual` 全 false，
-  整行重画）
+- ClearScreen 在歌词行或高亮词变化时绕过增量 diff 的历史状态（`curbuf`
+  全填空白，相关行从空白重画）
 - synchronized output 保证整帧原子刷新，无闪烁
 
 两者缺一不可。单独 alt screen 无法解决短距离相对移动的偏差；单独
@@ -428,8 +432,8 @@ ClearScreen 在 inline 模式下闪烁且 clear 行为不同。
 
 - `internal/ui/app.go`
   - `View()`：设置 `v.AltScreen = true`
-  - `Update()` tickMsg 分支：高亮换词时发 `tea.ClearScreen()`
-  - `currentLyricWordIndex()`：返回当前高亮词索引
+  - `Update()` tickMsg 分支：歌词行或高亮词变化时发 `tea.ClearScreen()`
+  - `currentLyricRenderState()`：返回当前歌词行和高亮词索引
   - `renderCurrentLyricLine()`：产出三段 SGR 的歌词行字符串
 
 ### bubbletea v2（charm.land/bubbletea/v2@v2.0.8）
