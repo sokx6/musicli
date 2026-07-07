@@ -776,11 +776,19 @@ func (a *App) renderLeftPane() string {
 	if h < 1 {
 		h = 1
 	}
+	contentW := w - a.styles.leftPane.GetHorizontalFrameSize()
+	if contentW < 1 {
+		contentW = 1
+	}
+	contentH := h - a.styles.leftPane.GetVerticalFrameSize()
+	if contentH < 1 {
+		contentH = 1
+	}
 	if a.lyric != nil && len(a.lyric.Lines) > 0 {
-		return a.renderLyricsPane(w, h)
+		return a.renderLyricsPane(contentW, contentH)
 	}
 	placeholder := a.styles.muted.Render("[ cover + lyrics ]")
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, placeholder)
+	return lipgloss.Place(contentW, contentH, lipgloss.Center, lipgloss.Center, placeholder)
 }
 
 func (a *App) renderLyricsPane(w, h int) string {

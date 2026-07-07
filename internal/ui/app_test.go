@@ -345,6 +345,52 @@ func TestRenderCurrentLyricLineDoesNotRevealClippedActiveWord(t *testing.T) {
 	}
 }
 
+func TestRenderLeftPaneDoesNotWrapNarrowHighlightedLine(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{
+		{
+			StartMs: 1000,
+			EndMs:   4000,
+			Text:    "ツギハギだらけの君との時間も",
+			Words: []lyrics.Word{
+				{Text: "ツ", StartMs: 1000, EndMs: 1100},
+				{Text: "ギ", StartMs: 1100, EndMs: 1200},
+				{Text: "ハ", StartMs: 1200, EndMs: 1300},
+				{Text: "ギ", StartMs: 1300, EndMs: 1400},
+				{Text: "だ", StartMs: 1400, EndMs: 1500},
+				{Text: "ら", StartMs: 1500, EndMs: 1600},
+				{Text: "け", StartMs: 1600, EndMs: 1700},
+				{Text: "の", StartMs: 1700, EndMs: 1800},
+				{Text: "君", StartMs: 1800, EndMs: 2400},
+				{Text: "と", StartMs: 2400, EndMs: 3000},
+				{Text: "の", StartMs: 3000, EndMs: 3100},
+				{Text: "時", StartMs: 3100, EndMs: 3200},
+				{Text: "間", StartMs: 3200, EndMs: 3300},
+				{Text: "も", StartMs: 3300, EndMs: 4000},
+			},
+		},
+	}}
+	app.pos = 2400
+	app.leftW = 8
+	app.height = 9
+
+	const paneW = 8
+	const paneH = 3 // bodyHeight: 9 - 2 top bar - 4 player bar.
+	rendered := app.styles.leftPane.
+		Width(paneW).
+		Height(paneH).
+		Render(app.renderLeftPane())
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != paneH {
+		t.Fatalf("left pane wrapped into %d lines, want %d:\n%q", len(lines), paneH, rendered)
+	}
+	for i, line := range lines {
+		if got := ansi.StringWidth(line); got > paneW {
+			t.Fatalf("line %d width = %d, want <= %d: %q", i, got, paneW, line)
+		}
+	}
+}
+
 func TestLyricRenderStateChangesWhenLineChangesWithSameWordIndex(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{
