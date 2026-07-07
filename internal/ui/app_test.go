@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"image"
+	"image/color"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -391,6 +393,90 @@ func TestRenderLeftPaneDoesNotWrapNarrowHighlightedLine(t *testing.T) {
 	}
 }
 
+func TestRenderLeftPaneKeepsCoverAndLyricsSeparated(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{
+		{
+			StartMs: 1000,
+			EndMs:   4000,
+			Text:    "ツギハギだらけの君との時間も",
+			Words: []lyrics.Word{
+				{Text: "ツギハギだらけの", StartMs: 1000, EndMs: 2000},
+				{Text: "君との時間も", StartMs: 2000, EndMs: 4000},
+			},
+		},
+	}}
+	app.coverImage = testCoverImage(12, 12)
+	app.leftContent = leftContentBoth
+	app.pos = 2000
+	app.leftW = 44
+	app.height = 12
+
+	const paneW = 44
+	const paneH = 6 // bodyHeight: 12 - 2 top bar - 4 player bar.
+	rendered := app.styles.leftPane.
+		Width(paneW).
+		Height(paneH).
+		Render(app.renderLeftPane())
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != paneH {
+		t.Fatalf("left pane height = %d, want %d:\n%q", len(lines), paneH, rendered)
+	}
+	for i, line := range lines {
+		if got := ansi.StringWidth(line); got > paneW {
+			t.Fatalf("line %d width = %d, want <= %d: %q", i, got, paneW, line)
+		}
+		plain := ansi.Strip(line)
+		if strings.Contains(plain, "▀ツ") || strings.Contains(plain, "▀君") {
+			t.Fatalf("cover and lyric text overlapped on line %d: %q", i, plain)
+		}
+	}
+	plain := ansi.Strip(rendered)
+	if !strings.Contains(plain, "▀") {
+		t.Fatalf("left pane missing cover blocks:\n%s", plain)
+	}
+	if !strings.Contains(plain, "君") {
+		t.Fatalf("left pane missing lyric text:\n%s", plain)
+	}
+}
+
+func TestToggleLeftContentModeCyclesCoverLyricsBoth(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	if app.leftContent != leftContentBoth {
+		t.Fatalf("initial left content mode = %v, want both", app.leftContent)
+	}
+
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Text: "v", Code: 'v'}))
+	if app.leftContent != leftContentCover {
+		t.Fatalf("after first toggle = %v, want cover", app.leftContent)
+	}
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Text: "v", Code: 'v'}))
+	if app.leftContent != leftContentLyrics {
+		t.Fatalf("after second toggle = %v, want lyrics", app.leftContent)
+	}
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Text: "v", Code: 'v'}))
+	if app.leftContent != leftContentBoth {
+		t.Fatalf("after third toggle = %v, want both", app.leftContent)
+	}
+}
+
+func TestDisableCoverFallsBackToLyrics(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{DisableCover: true})
+	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{{StartMs: 0, EndMs: 1000, Text: "lyrics only"}}}
+	app.coverImage = testCoverImage(4, 4)
+	app.leftContent = leftContentBoth
+	app.leftW = 30
+	app.height = 10
+
+	plain := ansi.Strip(app.renderLeftPane())
+	if strings.Contains(plain, "▀") {
+		t.Fatalf("disabled cover should not render cover blocks:\n%s", plain)
+	}
+	if !strings.Contains(plain, "lyrics only") {
+		t.Fatalf("disabled cover should leave lyrics visible:\n%s", plain)
+	}
+}
+
 func TestLyricRenderStateChangesWhenLineChangesWithSameWordIndex(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{
@@ -432,6 +518,16 @@ var ansiRE = regexp.MustCompile(`\x1b\[[0-9;:]*[A-Za-z]`)
 
 func stripANSI(s string) string {
 	return ansiRE.ReplaceAllString(s, "")
+}
+
+func testCoverImage(w, h int) image.Image {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x * 255 / max(1, w-1)), G: uint8(y * 255 / max(1, h-1)), B: 90, A: 255})
+		}
+	}
+	return img
 }
 
 func trimRightLines(s string) string {

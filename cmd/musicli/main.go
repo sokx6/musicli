@@ -105,6 +105,7 @@ func run() error {
 
 	app := ui.NewWithOptions(eng, sc, t, logger, ui.Options{
 		TrackListMaxWidth: cfg.UI.TrackListMaxWidth,
+		DisableCover:      !cfg.Cover.Show,
 	})
 	fl.Info("ui app created")
 

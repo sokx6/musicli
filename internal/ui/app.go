@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"os"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/locxl/musicli/internal/audio"
+	"github.com/locxl/musicli/internal/cover"
 	"github.com/locxl/musicli/internal/library"
 	"github.com/locxl/musicli/internal/log"
 	"github.com/locxl/musicli/internal/lyrics"
@@ -54,7 +56,16 @@ func (i trackItem) FilterValue() string { return i.track.Title + " " + i.track.A
 type Options struct {
 	// TrackListMaxWidth caps the content-fit track list width. Zero means no cap.
 	TrackListMaxWidth int
+	DisableCover      bool
 }
+
+type leftContentMode int
+
+const (
+	leftContentBoth leftContentMode = iota
+	leftContentCover
+	leftContentLyrics
+)
 
 // App is the top-level bubbletea model.
 type App struct {
@@ -73,11 +84,14 @@ type App struct {
 	delegate  list.DefaultDelegate
 	progress  progress.Model
 
-	tracks    []*library.Track
-	current   int // index into tracks, -1 if none
-	loading   bool
-	lyric     *lyrics.Lyric
-	lyricPath string
+	tracks     []*library.Track
+	current    int // index into tracks, -1 if none
+	loading    bool
+	lyric      *lyrics.Lyric
+	lyricPath  string
+	coverImage image.Image
+
+	leftContent leftContentMode
 
 	// playback state mirror (polled from engine)
 	pos       int
@@ -126,7 +140,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 		"engine", eng != nil,
 		"scanner", sc != nil,
 		"theme_mode", t.Mode,
-		"keybindings", 12,
+		"keybindings", 13,
 	)
 
 	return &App{
@@ -143,6 +157,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 		current:         -1,
 		volume:          80,
 		speed:           1.0,
+		leftContent:     leftContentBoth,
 		lastState:       audio.StateStopped,
 		lastLyricRender: lyricRenderState{line: -1, word: -1},
 	}
@@ -350,6 +365,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		fl.Debug("key matched", "key", keyStr, "action", "prevTrack")
 		return a, a.prevTrack()
 
+	case key.Matches(msg, a.keys.ToggleView):
+		fl.Debug("key matched", "key", keyStr, "action", "toggleLeftContent")
+		a.toggleLeftContent()
+		return a, func() tea.Msg { return tea.ClearScreen() }
+
 	case key.Matches(msg, a.keys.SeekFwd):
 		fl.Debug("key matched", "key", keyStr, "action", "seekRelative+5000")
 		return a, a.seekRelative(5000)
@@ -455,6 +475,7 @@ func (a *App) playSelected() tea.Cmd {
 		return func() tea.Msg { return errMsg{err: err} }
 	}
 	a.loadCurrentLyrics()
+	a.loadCurrentCover()
 	return nil
 }
 
@@ -489,6 +510,7 @@ func (a *App) nextTrack() tea.Cmd {
 		return func() tea.Msg { return errMsg{err: err} }
 	}
 	a.loadCurrentLyrics()
+	a.loadCurrentCover()
 	return nil
 }
 
@@ -511,7 +533,19 @@ func (a *App) prevTrack() tea.Cmd {
 		return func() tea.Msg { return errMsg{err: err} }
 	}
 	a.loadCurrentLyrics()
+	a.loadCurrentCover()
 	return nil
+}
+
+func (a *App) toggleLeftContent() {
+	switch a.leftContent {
+	case leftContentBoth:
+		a.leftContent = leftContentCover
+	case leftContentCover:
+		a.leftContent = leftContentLyrics
+	default:
+		a.leftContent = leftContentBoth
+	}
 }
 
 func (a *App) seekRelative(deltaMs int) tea.Cmd {
@@ -565,6 +599,28 @@ func (a *App) loadCurrentLyrics() {
 	a.lyric = ly
 	a.lyricPath = lyricPath
 	fl.Info("local lyric loaded", "path", lyricPath, "lines", len(ly.Lines))
+}
+
+func (a *App) loadCurrentCover() {
+	fl := a.log.WithFunc("loadCurrentCover")
+	a.coverImage = nil
+	if a.options.DisableCover {
+		return
+	}
+	if a.current < 0 || a.current >= len(a.tracks) {
+		return
+	}
+	path := a.tracks[a.current].Path
+	if path == "" {
+		return
+	}
+	img, err := cover.Extract(path)
+	if err != nil {
+		fl.Debug("cover load skipped", "path", path, "err", err)
+		return
+	}
+	a.coverImage = img
+	fl.Info("cover loaded", "path", path, "bounds", img.Bounds().String())
 }
 
 // --- layout ---
@@ -784,11 +840,55 @@ func (a *App) renderLeftPane() string {
 	if contentH < 1 {
 		contentH = 1
 	}
-	if a.lyric != nil && len(a.lyric.Lines) > 0 {
-		return a.renderLyricsPane(contentW, contentH)
+	switch a.leftContent {
+	case leftContentCover:
+		return a.renderCoverPane(contentW, contentH)
+	case leftContentLyrics:
+		return a.renderLyricsOrPlaceholder(contentW, contentH)
+	default:
+		return a.renderCoverAndLyricsPane(contentW, contentH)
 	}
-	placeholder := a.styles.muted.Render("[ cover + lyrics ]")
-	return lipgloss.Place(contentW, contentH, lipgloss.Center, lipgloss.Center, placeholder)
+}
+
+func (a *App) renderCoverAndLyricsPane(w, h int) string {
+	if w <= 0 || h <= 0 {
+		return ""
+	}
+	if a.options.DisableCover || a.coverImage == nil {
+		return a.renderLyricsOrPlaceholder(w, h)
+	}
+	if w < 12 {
+		return a.renderLyricsOrPlaceholder(w, h)
+	}
+
+	gapW := 1
+	coverW := w / 2
+	lyricsW := w - coverW - gapW
+	if coverW < 1 || lyricsW < 1 {
+		return a.renderLyricsOrPlaceholder(w, h)
+	}
+
+	coverPane := fitBlock(a.renderCoverPane(coverW, h), coverW, h)
+	lyricsPane := fitBlock(a.renderLyricsOrPlaceholder(lyricsW, h), lyricsW, h)
+	gap := fitBlock("", gapW, h)
+	return fitBlock(lipgloss.JoinHorizontal(lipgloss.Top, coverPane, gap, lyricsPane), w, h)
+}
+
+func (a *App) renderLyricsOrPlaceholder(w, h int) string {
+	if a.lyric != nil && len(a.lyric.Lines) > 0 {
+		return fitBlock(a.renderLyricsPane(w, h), w, h)
+	}
+	return fitBlock(lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, a.styles.muted.Render("[ lyrics ]")), w, h)
+}
+
+func (a *App) renderCoverPane(w, h int) string {
+	if a.options.DisableCover {
+		return a.renderLyricsOrPlaceholder(w, h)
+	}
+	if a.coverImage == nil {
+		return fitBlock(lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, a.styles.muted.Render("[ cover ]")), w, h)
+	}
+	return fitBlock(cover.RenderHalfBlock(a.coverImage, w, h), w, h)
 }
 
 func (a *App) renderLyricsPane(w, h int) string {
@@ -982,6 +1082,26 @@ func padCellText(s string, width int) string {
 	return s
 }
 
+func fitBlock(s string, width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	in := strings.Split(s, "\n")
+	out := make([]string, height)
+	for i := 0; i < height; i++ {
+		if i >= len(in) {
+			out[i] = strings.Repeat(" ", width)
+			continue
+		}
+		line := in[i]
+		if ansi.StringWidth(line) > width {
+			line = ansi.Truncate(line, width, "")
+		}
+		out[i] = padCellText(line, width)
+	}
+	return strings.Join(out, "\n")
+}
+
 func (a *App) renderPlayerBar() string {
 	w := a.width
 
@@ -1023,7 +1143,7 @@ func (a *App) renderPlayerBar() string {
 }
 
 func (a *App) helpLine() string {
-	return "q quit  ⏎ play  ␣ pause  n/b next/prev  ←→ seek  +- vol  [] speed  / filter"
+	return "q quit  ⏎ play  ␣ pause  n/b next/prev  v view  ←→ seek  +- vol  [] speed  / filter"
 }
 
 // fmtDuration formats ms duration as M:SS or H:MM:SS.
