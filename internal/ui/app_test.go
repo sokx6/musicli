@@ -37,9 +37,7 @@ func TestTrackListWidthFitsContentAndStaysRightAligned(t *testing.T) {
 }
 
 func TestTrackListWidthShrinksToKeepLeftPaneWhenContentIsTooWide(t *testing.T) {
-	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
-		TrackListMaxWidth: 200,
-	})
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 
 	m, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 	app = m.(*App)
@@ -83,6 +81,52 @@ func TestTrackListMaxWidthCapsContentWidth(t *testing.T) {
 	}
 	if got := app.leftPaneWidth(); got != 128 {
 		t.Fatalf("left pane width = %d, want 128", got)
+	}
+}
+
+func TestConfiguredTrackListMaxWidthControlsSingleColumnThreshold(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		TrackListMaxWidth: 50,
+	})
+
+	m, _ := app.Update(tea.WindowSizeMsg{Width: 60, Height: 24})
+	app = m.(*App)
+	m, _ = app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{
+			Title:  "this title is intentionally wider than fifty cells",
+			Artist: "artist",
+		},
+	}})
+	app = m.(*App)
+
+	if got := app.trackList.Width(); got != 50 {
+		t.Fatalf("track list width = %d, want configured max 50", got)
+	}
+	if got := app.leftPaneWidth(); got != 10 {
+		t.Fatalf("left pane width = %d, want remaining width 10", got)
+	}
+}
+
+func TestWidthBelowConfiguredTrackListMaxWidthUsesSingleColumn(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		TrackListMaxWidth: 50,
+	})
+
+	m, _ := app.Update(tea.WindowSizeMsg{Width: 49, Height: 24})
+	app = m.(*App)
+	m, _ = app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{
+			Title:  "this title is intentionally wider than fifty cells",
+			Artist: "artist",
+		},
+	}})
+	app = m.(*App)
+
+	if got := app.leftPaneWidth(); got != 0 {
+		t.Fatalf("left pane width = %d, want 0 in single-column mode", got)
+	}
+	if got := app.trackList.Width(); got != 49 {
+		t.Fatalf("track list width = %d, want full terminal width 49", got)
 	}
 }
 

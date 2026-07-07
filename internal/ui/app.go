@@ -614,6 +614,18 @@ func (a *App) layoutWidths() (leftW, listW int) {
 	if a.width < 1 {
 		return 0, 1
 	}
+	singleColumnThreshold := 80
+	if a.options.TrackListMaxWidth > 0 {
+		singleColumnThreshold = a.options.TrackListMaxWidth
+	}
+	if a.width < singleColumnThreshold {
+		listW = a.width
+		if listW < 1 {
+			listW = 1
+		}
+		return 0, listW
+	}
+
 	baseLeftW := a.baseLeftPaneWidth()
 	availableListW := a.width - baseLeftW
 	if availableListW < 1 {
@@ -632,13 +644,6 @@ func (a *App) layoutWidths() (leftW, listW int) {
 	}
 
 	leftW = a.width - listW
-	if a.width < 80 {
-		leftW = 0
-		listW = a.width
-		if listW < 1 {
-			listW = 1
-		}
-	}
 	return leftW, listW
 }
 
