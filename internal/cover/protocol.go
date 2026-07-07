@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"image/color"
 	"image/png"
 	"strings"
 )
@@ -79,6 +80,11 @@ func RenderKitty(img image.Image, placement KittyPlacement) (string, error) {
 func imageCanvas(img image.Image, width, height int, scale ScaleMode) image.Image {
 	drawW, drawH := coverDrawSize(img.Bounds(), width, height, scale)
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height*2))
+	for y := canvas.Bounds().Min.Y; y < canvas.Bounds().Max.Y; y++ {
+		for x := canvas.Bounds().Min.X; x < canvas.Bounds().Max.X; x++ {
+			canvas.Set(x, y, color.RGBA{A: 255})
+		}
+	}
 	offsetX := (width - drawW) / 2
 	offsetY := (height - drawH) / 2
 	for row := 0; row < drawH*2; row++ {

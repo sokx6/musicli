@@ -100,9 +100,10 @@ type App struct {
 	lyricPath  string
 	coverImage image.Image
 
-	leftContent   leftContentMode
-	coverScale    coverScaleMode
-	coverProtocol string
+	leftContent    leftContentMode
+	coverScale     coverScaleMode
+	coverProtocol  string
+	lastKittyCover string
 
 	// playback state mirror (polled from engine)
 	pos       int
@@ -302,14 +303,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.pollEngine()
 		newLyric := a.currentLyricRenderState()
 		a.lastLyricRender = newLyric
-		coverCmd := a.kittyCoverCmd()
 		// When the active lyric cell range changes, force a full screen redraw
 		// to bypass the diff engine's mishandling of SGR transitions on CJK wide
 		// chars.
 		if newLyric != prevLyric {
-			return a, tea.Batch(tickCmd(), tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, coverCmd))
+			return a, tea.Batch(tickCmd(), a.clearScreenAndKittyCoverCmd())
 		}
-		return a, tea.Batch(tickCmd(), coverCmd)
+		return a, tea.Batch(tickCmd(), a.kittyCoverCmd())
 
 	case errMsg:
 		fl := a.log.WithFunc("Update")
@@ -384,12 +384,12 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.ToggleView):
 		fl.Debug("key matched", "key", keyStr, "action", "toggleLeftContent")
 		a.toggleLeftContent()
-		return a, tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, a.kittyCoverCmd())
+		return a, a.clearScreenAndKittyCoverCmd()
 
 	case key.Matches(msg, a.keys.ToggleScale):
 		fl.Debug("key matched", "key", keyStr, "action", "toggleCoverScale")
 		a.toggleCoverScale()
-		return a, tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, a.kittyCoverCmd())
+		return a, a.clearScreenAndKittyCoverCmd()
 
 	case key.Matches(msg, a.keys.SeekFwd):
 		fl.Debug("key matched", "key", keyStr, "action", "seekRelative+5000")
@@ -594,10 +594,16 @@ func (a *App) coverScaleMode() cover.ScaleMode {
 
 func (a *App) kittyCoverCmd() tea.Cmd {
 	seq := a.renderKittyCoverOverlay()
-	if seq == "" {
+	if seq == "" || seq == a.lastKittyCover {
 		return nil
 	}
+	a.lastKittyCover = seq
 	return tea.Raw(seq)
+}
+
+func (a *App) clearScreenAndKittyCoverCmd() tea.Cmd {
+	a.lastKittyCover = ""
+	return tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, a.kittyCoverCmd())
 }
 
 func (a *App) seekRelative(deltaMs int) tea.Cmd {

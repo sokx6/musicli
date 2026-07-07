@@ -100,6 +100,44 @@ func TestKittyRenderResamplesToCellPixelCanvas(t *testing.T) {
 	}
 }
 
+func TestKittyFitCanvasIsOpaque(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 4, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 4; x++ {
+			img.Set(x, y, color.RGBA{R: 120, G: 80, B: 40, A: 255})
+		}
+	}
+
+	seq, err := RenderKitty(img, KittyPlacement{
+		ID:     42,
+		X:      1,
+		Y:      1,
+		Width:  8,
+		Height: 4,
+		Scale:  ScaleFit,
+	})
+	if err != nil {
+		t.Fatalf("RenderKitty: %v", err)
+	}
+	payload := seq[strings.LastIndex(seq, ";")+1 : strings.LastIndex(seq, "\x1b\\")]
+	raw, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		t.Fatalf("payload is not base64: %v", err)
+	}
+	decoded, err := png.Decode(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("payload is not png: %v", err)
+	}
+	for y := decoded.Bounds().Min.Y; y < decoded.Bounds().Max.Y; y++ {
+		for x := decoded.Bounds().Min.X; x < decoded.Bounds().Max.X; x++ {
+			_, _, _, a := decoded.At(x, y).RGBA()
+			if a != 0xffff {
+				t.Fatalf("pixel (%d,%d) alpha = %#x, want opaque", x, y, a)
+			}
+		}
+	}
+}
+
 func TestClearKittyImage(t *testing.T) {
 	if got := ClearKittyImage(7); got != "\x1b_Ga=d,d=I,i=7\x1b\\" {
 		t.Fatalf("ClearKittyImage() = %q", got)

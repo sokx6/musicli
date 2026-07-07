@@ -537,6 +537,56 @@ func TestLyricsOnlyClearsKittyCover(t *testing.T) {
 	}
 }
 
+func TestKittyCoverCommandOnlyEmitsWhenOverlayChanges(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty"})
+	app.coverImage = testCoverImage(4, 4)
+	app.leftContent = leftContentCover
+	app.leftW = 12
+	app.height = 10
+
+	if cmd := app.kittyCoverCmd(); cmd == nil {
+		t.Fatal("first kitty cover command should draw image")
+	} else if _, ok := cmd().(tea.RawMsg); !ok {
+		t.Fatalf("first kitty cover command returned %T, want tea.RawMsg", cmd())
+	}
+	if cmd := app.kittyCoverCmd(); cmd != nil {
+		t.Fatalf("unchanged kitty cover should not redraw, got command %#v", cmd())
+	}
+}
+
+func TestKittyCoverClearOnlyEmitsOnce(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty"})
+	app.coverImage = testCoverImage(4, 4)
+	app.leftContent = leftContentLyrics
+	app.leftW = 20
+	app.height = 10
+
+	if cmd := app.kittyCoverCmd(); cmd == nil {
+		t.Fatal("first lyrics-only kitty cover command should clear image")
+	}
+	if cmd := app.kittyCoverCmd(); cmd != nil {
+		t.Fatalf("unchanged clear state should not clear repeatedly, got command %#v", cmd())
+	}
+}
+
+func TestClearScreenForcesKittyCoverRedraw(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty"})
+	app.coverImage = testCoverImage(4, 4)
+	app.leftContent = leftContentCover
+	app.leftW = 12
+	app.height = 10
+
+	if cmd := app.kittyCoverCmd(); cmd == nil {
+		t.Fatal("first kitty cover command should draw image")
+	}
+	if cmd := app.kittyCoverCmd(); cmd != nil {
+		t.Fatalf("unchanged kitty cover should not redraw, got command %#v", cmd())
+	}
+	if cmd := app.clearScreenAndKittyCoverCmd(); cmd == nil {
+		t.Fatal("clear screen should force kitty redraw")
+	}
+}
+
 func TestLyricRenderStateChangesWhenLineChangesWithSameWordIndex(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{
