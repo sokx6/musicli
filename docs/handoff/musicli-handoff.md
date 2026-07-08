@@ -221,7 +221,7 @@ ui → {audio, library, playlist, lyrics, cover, theme}  # 唯一依赖 bubblete
 - `[library] sort_field`、`sort_order` 控制扫描后曲目排序
 - `[library] group_by_album` 控制默认进入全部曲目或专辑视图，当前默认 `false`
 - `tab` 切换全部曲目/专辑列表，`enter` 进入专辑曲目，`esc`/`backspace` 返回专辑列表
-- 专辑曲目选择映射回全局曲目索引，播放/下一首/上一首仍使用全局排序列表
+- 专辑曲目选择映射回全局曲目索引；在专辑曲目视图中，播放范围限定为当前专辑
 
 ### 阶段 7: 播放模式
 - `[playback] repeat = "none" | "one" | "list"`，默认 `list`
@@ -230,6 +230,7 @@ ui → {audio, library, playlist, lyrics, cover, theme}  # 唯一依赖 bubblete
 - shuffle 开启时自动下一首和手动下一首会选择不同于当前曲的随机曲目（至少两首时）
 - 手动 `n`/`l` 下一首保留显式导航语义，`repeat = "none"` 时仍可从末尾回到开头
 - 手动 `b`/`h` 上一首保持列表顺序，不维护 shuffle 历史
+- 在专辑曲目视图中，下一首/上一首/自动续播/shuffle 都限定在当前专辑内
 - `r` 切换 repeat：`list` → `one` → `none` → `list`
 - `s` 切换 shuffle：`off` ↔ `on`
 - 播放栏显示当前 repeat/shuffle 状态

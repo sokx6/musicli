@@ -716,31 +716,87 @@ func (a *App) playbackRepeat() string {
 	}
 }
 
+func (a *App) trackIndex(track *library.Track) int {
+	for i, candidate := range a.tracks {
+		if candidate == track {
+			return i
+		}
+	}
+	return -1
+}
+
+func (a *App) playbackScope() []*library.Track {
+	if a.libraryView == libraryViewAlbumTracks &&
+		a.currentAlbum >= 0 &&
+		a.currentAlbum < len(a.albums) &&
+		a.current >= 0 &&
+		a.current < len(a.tracks) {
+		currentTrack := a.tracks[a.current]
+		albumTracks := a.albums[a.currentAlbum].Tracks
+		for _, track := range albumTracks {
+			if track == currentTrack {
+				return albumTracks
+			}
+		}
+	}
+	return a.tracks
+}
+
+func (a *App) playbackScopeWithCurrent() ([]*library.Track, int) {
+	scope := a.playbackScope()
+	if len(scope) == 0 {
+		return scope, -1
+	}
+	scopeIdx := -1
+	if a.current >= 0 && a.current < len(a.tracks) {
+		currentTrack := a.tracks[a.current]
+		for i, track := range scope {
+			if track == currentTrack {
+				scopeIdx = i
+				break
+			}
+		}
+	}
+	return scope, scopeIdx
+}
+
 func (a *App) nextTrackIndex(autoAdvance bool) int {
-	if len(a.tracks) == 0 {
+	scope, scopeIdx := a.playbackScopeWithCurrent()
+	if len(scope) == 0 {
 		return -1
 	}
-	if a.current < 0 || a.current >= len(a.tracks) {
-		return 0
+	if scopeIdx < 0 {
+		return a.trackIndex(scope[0])
 	}
 	if autoAdvance {
 		switch a.playbackRepeat() {
 		case "one":
 			return a.current
 		case "none":
-			if a.current >= len(a.tracks)-1 {
+			if scopeIdx >= len(scope)-1 {
 				return -1
 			}
 		}
 	}
-	if a.options.PlaybackShuffle && len(a.tracks) > 1 {
-		next := rand.N(len(a.tracks) - 1)
-		if next >= a.current {
+	if a.options.PlaybackShuffle && len(scope) > 1 {
+		next := rand.N(len(scope) - 1)
+		if next >= scopeIdx {
 			next++
 		}
-		return next
+		return a.trackIndex(scope[next])
 	}
-	return (a.current + 1) % len(a.tracks)
+	return a.trackIndex(scope[(scopeIdx+1)%len(scope)])
+}
+
+func (a *App) prevTrackIndex() int {
+	scope, scopeIdx := a.playbackScopeWithCurrent()
+	if len(scope) == 0 {
+		return -1
+	}
+	if scopeIdx < 0 {
+		return a.trackIndex(scope[0])
+	}
+	return a.trackIndex(scope[(scopeIdx-1+len(scope))%len(scope)])
 }
 
 func (a *App) trackEndedNaturally() bool {
@@ -822,13 +878,13 @@ func (a *App) prevTrack() tea.Cmd {
 		return nil
 	}
 	prevIdx := a.current
-	if a.current < 0 {
-		a.current = 0
-	} else {
-		a.current = (a.current - 1 + len(a.tracks)) % len(a.tracks)
+	nextIdx := a.prevTrackIndex()
+	if nextIdx < 0 {
+		fl.Debug("no previous track", "prevIdx", prevIdx)
+		return nil
 	}
-	fl.Debug("prev track", "prevIdx", prevIdx, "newIdx", a.current)
-	return a.playTrackAt(a.current)
+	fl.Debug("prev track", "prevIdx", prevIdx, "newIdx", nextIdx)
+	return a.playTrackAt(nextIdx)
 }
 
 func (a *App) toggleLeftContent() {

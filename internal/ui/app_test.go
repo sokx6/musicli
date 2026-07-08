@@ -272,6 +272,92 @@ func TestNextTrackIndexShuffleAvoidsCurrentWhenPossible(t *testing.T) {
 	}
 }
 
+func TestNextTrackIndexStaysInAlbumTrackView(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		GroupByAlbum:   true,
+		PlaybackRepeat: "list",
+	})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "a1.mp3", Title: "Alpha 1", Album: "Alpha"},
+		{Path: "a2.mp3", Title: "Alpha 2", Album: "Alpha"},
+		{Path: "b1.mp3", Title: "Beta 1", Album: "Beta"},
+	}})
+	app = m.(*App)
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+
+	app.current = 1
+	if got := app.nextTrackIndex(false); got != 0 {
+		t.Fatalf("album next from Alpha 2 = %d, want Alpha 1 index 0", got)
+	}
+}
+
+func TestNextTrackIndexRepeatNoneStopsAtAlbumEnd(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		GroupByAlbum:   true,
+		PlaybackRepeat: "none",
+	})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "a1.mp3", Title: "Alpha 1", Album: "Alpha"},
+		{Path: "a2.mp3", Title: "Alpha 2", Album: "Alpha"},
+		{Path: "b1.mp3", Title: "Beta 1", Album: "Beta"},
+	}})
+	app = m.(*App)
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+
+	app.current = 1
+	if got := app.nextTrackIndex(true); got != -1 {
+		t.Fatalf("album auto next at Alpha end = %d, want -1", got)
+	}
+	if got := app.nextTrackIndex(false); got != 0 {
+		t.Fatalf("manual album next at Alpha end = %d, want wrap to Alpha 1 index 0", got)
+	}
+}
+
+func TestNextTrackIndexShuffleStaysInAlbumTrackView(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		GroupByAlbum:    true,
+		PlaybackRepeat:  "list",
+		PlaybackShuffle: true,
+	})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "a1.mp3", Title: "Alpha 1", Album: "Alpha"},
+		{Path: "a2.mp3", Title: "Alpha 2", Album: "Alpha"},
+		{Path: "a3.mp3", Title: "Alpha 3", Album: "Alpha"},
+		{Path: "b1.mp3", Title: "Beta 1", Album: "Beta"},
+	}})
+	app = m.(*App)
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+
+	app.current = 1
+	for i := 0; i < 30; i++ {
+		got := app.nextTrackIndex(true)
+		if got == 1 {
+			t.Fatalf("album shuffle returned current index %d", got)
+		}
+		if got < 0 || got > 2 {
+			t.Fatalf("album shuffle index = %d, want Alpha album index 0 or 2", got)
+		}
+	}
+}
+
+func TestPrevTrackIndexStaysInAlbumTrackView(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		GroupByAlbum: true,
+	})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "a1.mp3", Title: "Alpha 1", Album: "Alpha"},
+		{Path: "a2.mp3", Title: "Alpha 2", Album: "Alpha"},
+		{Path: "b1.mp3", Title: "Beta 1", Album: "Beta"},
+	}})
+	app = m.(*App)
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+
+	app.current = 0
+	if got := app.prevTrackIndex(); got != 1 {
+		t.Fatalf("album prev from Alpha 1 = %d, want Alpha 2 index 1", got)
+	}
+}
+
 func TestTrackEndedNaturallyRequiresStoppedAtDurationAfterPlaying(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	app.wasPlaying = true
