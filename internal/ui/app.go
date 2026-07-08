@@ -1242,7 +1242,7 @@ func (a *App) View() tea.View {
 		rightW = a.width - leftW
 	}
 
-	topBar := a.renderTopBar()
+	topBar := fitBlock(a.renderTopBar(), a.width, 2)
 
 	rightPaneW := rightW
 	if rightPaneW < 1 {
@@ -1264,8 +1264,9 @@ func (a *App) View() tea.View {
 	} else {
 		body = rightPane
 	}
+	body = fitBlock(body, a.width, bodyH)
 
-	bar := a.renderPlayerBar()
+	bar := fitBlock(a.renderPlayerBar(), a.width, 4)
 
 	full := lipgloss.JoinVertical(lipgloss.Left, topBar, body, bar)
 	full = fitBlock(full, a.width, a.height)

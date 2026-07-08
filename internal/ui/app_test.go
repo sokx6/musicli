@@ -503,6 +503,12 @@ func TestViewKeepsPlayerBarRowsAtTinyWidths(t *testing.T) {
 			if len(playerLines) != 4 {
 				t.Fatalf("player bar slice has %d lines, want 4", len(playerLines))
 			}
+			if !strings.Contains(playerLines[1], "⏹") {
+				t.Fatalf("player status line missing from bottom player bar:\n%s", strings.Join(playerLines, "\n"))
+			}
+			if strings.TrimSpace(playerLines[2]) == "" {
+				t.Fatalf("player progress line missing from bottom player bar:\n%s", strings.Join(playerLines, "\n"))
+			}
 			for i, line := range playerLines[1:] {
 				if got := ansi.StringWidth(line); got > width {
 					t.Fatalf("player content line %d width = %d, want <= %d: %q", i, got, width, line)
