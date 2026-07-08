@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/locxl/musicli/internal/library"
 	"github.com/locxl/musicli/internal/log"
@@ -570,21 +571,101 @@ func TestKittyCoverClearOnlyEmitsOnce(t *testing.T) {
 	}
 }
 
-func TestClearScreenForcesKittyCoverRedraw(t *testing.T) {
+func TestKittyCoverRedrawsAfterLyricsOnlyClear(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty"})
+	app.coverImage = testCoverImage(4, 4)
+	app.leftContent = leftContentCover
+	app.leftW = 20
+	app.height = 10
+
+	if cmd := app.kittyCoverCmd(); cmd == nil {
+		t.Fatal("initial cover command should draw image")
+	}
+
+	app.leftContent = leftContentLyrics
+	if cmd := app.kittyCoverCmd(); cmd == nil {
+		t.Fatal("lyrics-only command should clear image")
+	}
+
+	app.leftContent = leftContentCover
+	if cmd := app.kittyCoverCmd(); cmd == nil {
+		t.Fatal("cover command should redraw after the image was cleared")
+	} else if _, ok := cmd().(tea.RawMsg); !ok {
+		t.Fatalf("redraw command returned %T, want tea.RawMsg", cmd())
+	}
+}
+
+func TestKittyToggleResetsDedupForNextTickRedraw(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty"})
 	app.coverImage = testCoverImage(4, 4)
 	app.leftContent = leftContentCover
 	app.leftW = 12
 	app.height = 10
 
+	// Prime dedup: first call draws, second is deduped.
 	if cmd := app.kittyCoverCmd(); cmd == nil {
 		t.Fatal("first kitty cover command should draw image")
 	}
 	if cmd := app.kittyCoverCmd(); cmd != nil {
 		t.Fatalf("unchanged kitty cover should not redraw, got command %#v", cmd())
 	}
-	if cmd := app.clearScreenAndKittyCoverCmd(); cmd == nil {
-		t.Fatal("clear screen should force kitty redraw")
+
+	// Toggle resets dedup and returns nil (no ClearScreen for kitty).
+	// The chunked APC payload prevents base64 leaking even if the drawSeq
+	// and view diff land in the same renderer flush.
+	if cmd := app.clearScreenAndKittyCoverCmd(); cmd != nil {
+		t.Fatalf("kitty toggle should return nil (no ClearScreen), got %v", cmd)
+	}
+
+	// Next kittyCoverCmd redraws after dedup reset.
+	if cmd := app.kittyCoverCmd(); cmd == nil {
+		t.Fatal("should redraw after dedup reset from toggle")
+	} else if _, ok := cmd().(tea.RawMsg); !ok {
+		t.Fatalf("redraw command returned %T, want tea.RawMsg", cmd())
+	}
+}
+
+func TestKittyCoverCmdSkipsRenderWhenFingerprintUnchanged(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty"})
+	app.coverImage = testCoverImage(4, 4)
+	app.leftContent = leftContentCover
+	app.leftW = 12
+	app.height = 10
+
+	// First call renders and sets fingerprint.
+	if cmd := app.kittyCoverCmd(); cmd == nil {
+		t.Fatal("first kitty cover command should draw image")
+	}
+	fp := app.lastKittyFingerprint
+	if fp == "" {
+		t.Fatal("fingerprint should be set after first render")
+	}
+
+	// Second call: fingerprint unchanged → skip without rendering.
+	if cmd := app.kittyCoverCmd(); cmd != nil {
+		t.Fatalf("unchanged fingerprint should skip render, got command %v", cmd)
+	}
+
+	// Change cover image → fingerprint changes → render again.
+	app.coverImage = testCoverImage(8, 8)
+	if cmd := app.kittyCoverCmd(); cmd == nil {
+		t.Fatal("should redraw after cover image change")
+	}
+}
+
+func TestHalfBlockToggleStillClearsScreen(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "halfblock"})
+	app.coverImage = testCoverImage(4, 4)
+	app.leftW = 12
+	app.height = 10
+
+	cmd := app.clearScreenAndKittyCoverCmd()
+	if cmd == nil {
+		t.Fatal("halfblock toggle should return ClearScreen sequence")
+	}
+	msg := cmd()
+	if fmt.Sprintf("%T", msg) != "tea.clearScreenMsg" {
+		t.Fatalf("halfblock should clear screen, got %T", msg)
 	}
 }
 
@@ -627,7 +708,7 @@ func TestLyricRenderStateChangesWhenLineChangesWithSameWordIndex(t *testing.T) {
 
 	app.pos = 1000
 	first := app.currentLyricRenderState()
-	app.pos = 2000
+	app.pos = 2000 + lyricFinalWordGraceMs
 	second := app.currentLyricRenderState()
 
 	if first == second {
@@ -638,6 +719,71 @@ func TestLyricRenderStateChangesWhenLineChangesWithSameWordIndex(t *testing.T) {
 	}
 	if first.line != 0 || second.line != 1 {
 		t.Fatalf("line indexes = %d, %d; want 0, 1", first.line, second.line)
+	}
+}
+
+func TestFastLyricKeepsFinalWordVisibleAtLineBoundary(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{
+		{
+			StartMs: 1000,
+			EndMs:   2000,
+			Text:    "君と",
+			Words: []lyrics.Word{
+				{Text: "君", StartMs: 1000, EndMs: 1950},
+				{Text: "と", StartMs: 1950, EndMs: 2000},
+			},
+		},
+		{
+			StartMs: 2000,
+			EndMs:   3000,
+			Text:    "次",
+			Words: []lyrics.Word{
+				{Text: "次", StartMs: 2000, EndMs: 3000},
+			},
+		},
+	}}
+
+	app.pos = 2000
+
+	state := app.currentLyricRenderState()
+	if state.line != 0 || state.word != 1 {
+		t.Fatalf("final word should remain active at boundary, got %#v", state)
+	}
+	rendered := app.renderCurrentLyricLine(app.lyric.Lines[state.line], 20)
+	muted := ansi.NewStyle().ForegroundColor(app.theme.Muted)
+	if rendered == padCellText(muted.Styled(truncateCellText(app.lyric.Lines[state.line].Text, 20)), 20) {
+		t.Fatalf("final word should be highlighted at boundary: %q", rendered)
+	}
+}
+
+func TestCellSizeEventUpdatesDimensionsAndResetsDedup(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty"})
+	app.coverImage = testCoverImage(4, 4)
+	app.leftContent = leftContentCover
+	app.leftW = 12
+	app.height = 10
+
+	// Prime dedup.
+	if cmd := app.kittyCoverCmd(); cmd == nil {
+		t.Fatal("first kitty cover command should draw image")
+	}
+	if cmd := app.kittyCoverCmd(); cmd != nil {
+		t.Fatal("unchanged kitty cover should be deduped")
+	}
+
+	// Deliver cell size event.
+	m, _ := app.Update(uv.CellSizeEvent{Width: 9, Height: 20})
+	app = m.(*App)
+	if app.cellPixelW != 9 || app.cellPixelH != 20 {
+		t.Fatalf("cell pixel dimensions = %d,%d; want 9,20", app.cellPixelW, app.cellPixelH)
+	}
+
+	// Dedup reset → next kittyCoverCmd redraws with new dimensions.
+	if cmd := app.kittyCoverCmd(); cmd == nil {
+		t.Fatal("should redraw after cell size change")
+	} else if _, ok := cmd().(tea.RawMsg); !ok {
+		t.Fatalf("redraw returned %T, want tea.RawMsg", cmd())
 	}
 }
 

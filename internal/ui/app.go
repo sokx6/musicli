@@ -14,6 +14,7 @@ import (
 	"charm.land/bubbles/v2/progress"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/locxl/musicli/internal/audio"
@@ -100,10 +101,17 @@ type App struct {
 	lyricPath  string
 	coverImage image.Image
 
-	leftContent    leftContentMode
-	coverScale     coverScaleMode
-	coverProtocol  string
-	lastKittyCover string
+	leftContent     leftContentMode
+	coverScale      coverScaleMode
+	coverProtocol   string
+	cellPixelW      int
+	cellPixelH      int
+	lastKittyCover  string
+	kittyCoverDrawn bool
+	// lastKittyFingerprint captures the state that determines the kitty overlay
+	// appearance. Compared on every tick to skip the expensive RenderKitty()
+	// (PNG encode + base64) when nothing has changed.
+	lastKittyFingerprint string
 
 	// playback state mirror (polled from engine)
 	pos       int
@@ -212,9 +220,14 @@ func scanCmd(sc *library.Scanner, path string) tea.Cmd {
 	}
 }
 
-// tickCmd emits a tick every 100ms for progress/state polling.
+const (
+	tickInterval          = 50 * time.Millisecond
+	lyricFinalWordGraceMs = 60
+)
+
+// tickCmd emits a tick for progress/state polling.
 func tickCmd() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
+	return tea.Tick(tickInterval, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
 // --- bubbletea Model ---
@@ -222,7 +235,7 @@ func tickCmd() tea.Cmd {
 // Init starts the app.
 func (a *App) Init() tea.Cmd {
 	a.log.WithFunc("Init").Debug("init started")
-	return tea.Batch(tickCmd())
+	return tea.Batch(tickCmd(), tea.Raw(ansi.WindowOp(ansi.RequestCellSizeWinOp)))
 }
 
 // LoadPath triggers an async scan of the given file/dir path.
@@ -315,6 +328,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		fl := a.log.WithFunc("Update")
 		fl.Debug("received msg", "type", "errMsg", "err", msg.err)
 		a.errMsg = msg.err.Error()
+		return a, nil
+
+	case uv.CellSizeEvent:
+		fl := a.log.WithFunc("Update")
+		fl.Debug("received msg", "type", "CellSizeEvent", "width", msg.Width, "height", msg.Height)
+		a.cellPixelW = msg.Width
+		a.cellPixelH = msg.Height
+		a.lastKittyCover = ""
+		a.kittyCoverDrawn = false
+		a.lastKittyFingerprint = ""
 		return a, nil
 	}
 
@@ -592,17 +615,60 @@ func (a *App) coverScaleMode() cover.ScaleMode {
 	return cover.ScaleFit
 }
 
+// kittyCoverFingerprint returns a lightweight string that captures all state
+// affecting the kitty cover overlay. When this string is unchanged, the
+// expensive renderKittyCoverOverlay() (PNG encode + base64) can be skipped.
+func (a *App) kittyCoverFingerprint() string {
+	return fmt.Sprintf("%d|%d|%p|%d|%d|%d|%d",
+		a.leftContent,
+		a.coverScale,
+		a.coverImage,
+		a.cellPixelW,
+		a.cellPixelH,
+		a.leftPaneWidth(),
+		a.bodyHeight(),
+	)
+}
+
 func (a *App) kittyCoverCmd() tea.Cmd {
+	// Fast path: if nothing affecting the kitty overlay has changed since
+	// the last render, skip the expensive renderKittyCoverOverlay() entirely.
+	// This prevents PNG encode + base64 from running every 50ms tick, which
+	// blocked the event loop and made all keys feel laggy.
+	fp := a.kittyCoverFingerprint()
+	if fp == a.lastKittyFingerprint {
+		return nil
+	}
+
 	seq := a.renderKittyCoverOverlay()
-	if seq == "" || seq == a.lastKittyCover {
+	a.lastKittyFingerprint = fp
+	if seq == "" {
+		return nil
+	}
+	isDraw := strings.Contains(seq, "\x1b_Ga=T")
+	if isDraw && a.kittyCoverDrawn && seq == a.lastKittyCover {
+		return nil
+	}
+	if !isDraw && !a.kittyCoverDrawn && seq == a.lastKittyCover {
 		return nil
 	}
 	a.lastKittyCover = seq
+	a.kittyCoverDrawn = isDraw
 	return tea.Raw(seq)
 }
 
 func (a *App) clearScreenAndKittyCoverCmd() tea.Cmd {
 	a.lastKittyCover = ""
+	a.kittyCoverDrawn = false
+	a.lastKittyFingerprint = ""
+	if a.coverProtocol == cover.ProtocolKitty {
+		// ponytail: For kitty, ClearScreen forces a full repaint that erases the
+		// virtual image overlay. Skip it — the next tick's kittyCoverCmd()
+		// redraws after the view settles. The chunked APC payload (<=4096 bytes
+		// per chunk) prevents base64 from leaking even if the drawSeq and view
+		// diff land in the same renderer flush.
+		return nil
+	}
 	return tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, a.kittyCoverCmd())
 }
 
@@ -956,7 +1022,7 @@ func (a *App) renderCoverPane(w, h int) string {
 	if a.coverProtocol == cover.ProtocolKitty {
 		return fitBlock("", w, h)
 	}
-	return fitBlock(cover.RenderHalfBlockWithScale(a.coverImage, w, h, a.coverScaleMode()), w, h)
+	return fitBlock(cover.RenderHalfBlockWithScale(a.coverImage, w, h, a.coverScaleMode(), a.cellPixelW, a.cellPixelH), w, h)
 }
 
 func (a *App) renderKittyCoverOverlay() string {
@@ -991,6 +1057,8 @@ func (a *App) renderKittyCoverOverlay() string {
 		Width:  coverW,
 		Height: h,
 		Scale:  a.coverScaleMode(),
+		CellW:  a.cellPixelW,
+		CellH:  a.cellPixelH,
 	})
 	if err != nil {
 		a.log.WithFunc("renderKittyCoverOverlay").Warn("kitty cover render failed", "err", err)
@@ -1081,7 +1149,7 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 
 	current := -1
 	for i, word := range line.Words {
-		if word.StartMs <= a.pos && a.pos < word.EndMs {
+		if wordActiveAt(word, i == len(line.Words)-1, a.pos) {
 			current = i
 			break
 		}
@@ -1139,6 +1207,11 @@ func (a *App) currentLyricLineIndex() int {
 	}
 	idx := 0
 	for i, line := range a.lyric.Lines {
+		if line.StartMs <= a.pos && isLineInFinalWordGrace(line, a.pos) {
+			return i
+		}
+	}
+	for i, line := range a.lyric.Lines {
 		if line.StartMs <= a.pos && (line.EndMs == 0 || a.pos < line.EndMs) {
 			return i
 		}
@@ -1166,11 +1239,30 @@ func (a *App) currentLyricRenderState() lyricRenderState {
 		return lyricRenderState{line: -1, word: -1}
 	}
 	for i, word := range a.lyric.Lines[lineIdx].Words {
-		if word.StartMs <= a.pos && a.pos < word.EndMs {
+		if wordActiveAt(word, i == len(a.lyric.Lines[lineIdx].Words)-1, a.pos) {
 			return lyricRenderState{line: lineIdx, word: i}
 		}
 	}
 	return lyricRenderState{line: lineIdx, word: -1}
+}
+
+func wordActiveAt(word lyrics.Word, final bool, pos int) bool {
+	if word.StartMs > pos {
+		return false
+	}
+	end := word.EndMs
+	if final {
+		end += lyricFinalWordGraceMs
+	}
+	return pos < end
+}
+
+func isLineInFinalWordGrace(line lyrics.Line, pos int) bool {
+	if len(line.Words) == 0 {
+		return false
+	}
+	last := line.Words[len(line.Words)-1]
+	return last.EndMs <= pos && pos < last.EndMs+lyricFinalWordGraceMs
 }
 
 func truncateCellText(s string, width int) string {

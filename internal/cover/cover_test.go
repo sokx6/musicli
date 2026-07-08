@@ -43,7 +43,7 @@ func TestHalfBlockRendererFitPreservesAspectRatio(t *testing.T) {
 		}
 	}
 
-	rendered := RenderHalfBlockWithScale(img, 8, 4, ScaleFit)
+	rendered := RenderHalfBlockWithScale(img, 8, 4, ScaleFit, 0, 0)
 	lines := strings.Split(rendered, "\n")
 	if len(lines) != 4 {
 		t.Fatalf("height = %d, want 4:\n%q", len(lines), rendered)
@@ -75,7 +75,7 @@ func TestHalfBlockRendererStretchFillsBounds(t *testing.T) {
 		}
 	}
 
-	rendered := RenderHalfBlockWithScale(img, 8, 4, ScaleStretch)
+	rendered := RenderHalfBlockWithScale(img, 8, 4, ScaleStretch, 0, 0)
 	plain := ansi.Strip(rendered)
 	if !strings.Contains(plain, "▀▀▀▀▀▀▀▀") {
 		t.Fatalf("stretch mode should fill full width:\n%s", plain)
@@ -92,6 +92,75 @@ func TestHalfBlockRendererHandlesEmptyBounds(t *testing.T) {
 	}
 	if got := RenderHalfBlock(nil, 3, 3); got != "" {
 		t.Fatalf("nil image render = %q, want empty", got)
+	}
+}
+
+func TestCoverDrawSizeDefaultMatchesOldBehavior(t *testing.T) {
+	// With default cell size (10x20), the new pixel-based coverDrawSize must
+	// produce the same cell counts as the old halfblock-ratio formula.
+	cases := []struct {
+		name          string
+		imgW, imgH    int
+		width, height int
+	}{
+		{"square in square", 8, 8, 8, 8},
+		{"square in odd width", 8, 8, 5, 8},
+		{"portrait in landscape", 4, 8, 8, 4},
+		{"landscape in portrait", 8, 4, 4, 8},
+		{"small image large area", 2, 2, 10, 10},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bounds := image.Rect(0, 0, tc.imgW, tc.imgH)
+			gotW, gotH := coverDrawSize(bounds, tc.width, tc.height, ScaleFit, 0, 0)
+
+			// Old formula: terminalPixelH = height*2, drawPixelH = imgH*width/imgW
+			terminalPixelH := tc.height * 2
+			oldDrawW := tc.width
+			oldDrawPixelH := tc.imgH * oldDrawW / tc.imgW
+			if oldDrawPixelH > terminalPixelH {
+				oldDrawPixelH = terminalPixelH
+				oldDrawW = tc.imgW * oldDrawPixelH / tc.imgH
+			}
+			oldDrawH := (oldDrawPixelH + 1) / 2
+			if oldDrawW < 1 {
+				oldDrawW = 1
+			}
+			if oldDrawH < 1 {
+				oldDrawH = 1
+			}
+			if oldDrawW > tc.width {
+				oldDrawW = tc.width
+			}
+			if oldDrawH > tc.height {
+				oldDrawH = tc.height
+			}
+
+			if gotW != oldDrawW || gotH != oldDrawH {
+				t.Fatalf("coverDrawSize(%s) = %d,%d; old formula = %d,%d",
+					tc.name, gotW, gotH, oldDrawW, oldDrawH)
+			}
+		})
+	}
+}
+
+func TestCoverDrawSizeNonSquareCellProducesCorrectAspect(t *testing.T) {
+	// A square image in a square cell area should produce a square display
+	// when the cell pixel dimensions are correct, even if non-1:2.
+	squareImg := image.Rect(0, 0, 100, 100)
+	cellW, cellH := 9, 20
+	areaW, areaH := 20, 10 // 180x200 actual pixels (nearly square)
+
+	drawW, drawH := coverDrawSize(squareImg, areaW, areaH, ScaleFit, cellW, cellH)
+	// Display pixels: drawW*cellW x drawH*cellH — should be roughly square.
+	dispW := drawW * cellW
+	dispH := drawH * cellH
+	if dispW == 0 || dispH == 0 {
+		t.Fatalf("zero draw size: %d,%d", drawW, drawH)
+	}
+	ratio := float64(dispW) / float64(dispH)
+	if ratio < 0.95 || ratio > 1.05 {
+		t.Fatalf("square image aspect ratio = %.2f (dispW=%d dispH=%d), want ~1.0", ratio, dispW, dispH)
 	}
 }
 

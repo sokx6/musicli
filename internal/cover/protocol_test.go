@@ -10,6 +10,35 @@ import (
 	"testing"
 )
 
+// extractKittyPayload extracts and concatenates the base64 payload from a
+// (possibly chunked) kitty graphics sequence. Each APC chunk has the form
+// \x1b_G...;<payload>\x1b\\. The payloads are concatenated to reconstruct
+// the full base64 string.
+func extractKittyPayload(seq string) string {
+	var payload strings.Builder
+	for {
+		// Find the next APC start: \x1b_G
+		apcStart := strings.Index(seq, "\x1b_G")
+		if apcStart < 0 {
+			break
+		}
+		seq = seq[apcStart+3:] // skip \x1b_G
+		// Find the APC terminator: \x1b\\
+		apcEnd := strings.Index(seq, "\x1b\\")
+		if apcEnd < 0 {
+			break
+		}
+		apcBody := seq[:apcEnd]
+		seq = seq[apcEnd+2:] // skip \x1b\\
+		// The payload is after the last ; in the APC body.
+		semi := strings.LastIndex(apcBody, ";")
+		if semi >= 0 {
+			payload.WriteString(apcBody[semi+1:])
+		}
+	}
+	return payload.String()
+}
+
 func TestSelectProtocolUsesKittyOnlyWhenAvailable(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -61,7 +90,7 @@ func TestKittyRenderSequenceContainsDeletePositionAndPayload(t *testing.T) {
 	if !strings.Contains(seq, "\x1b_Ga=T,t=d,f=100,i=42,c=5,r=6,z=1;") {
 		t.Fatalf("sequence missing kitty transmit header: %q", seq)
 	}
-	payload := seq[strings.LastIndex(seq, ";")+1 : strings.LastIndex(seq, "\x1b\\")]
+	payload := extractKittyPayload(seq)
 	if _, err := base64.StdEncoding.DecodeString(payload); err != nil {
 		t.Fatalf("payload is not base64: %v", err)
 	}
@@ -86,7 +115,7 @@ func TestKittyRenderResamplesToCellPixelCanvas(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderKitty: %v", err)
 	}
-	payload := seq[strings.LastIndex(seq, ";")+1 : strings.LastIndex(seq, "\x1b\\")]
+	payload := extractKittyPayload(seq)
 	raw, err := base64.StdEncoding.DecodeString(payload)
 	if err != nil {
 		t.Fatalf("payload is not base64: %v", err)
@@ -100,7 +129,7 @@ func TestKittyRenderResamplesToCellPixelCanvas(t *testing.T) {
 	}
 }
 
-func TestKittyFitCanvasIsOpaque(t *testing.T) {
+func TestKittyFitDrawnAreaIsOpaque(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 4, 8))
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 4; x++ {
@@ -119,7 +148,7 @@ func TestKittyFitCanvasIsOpaque(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderKitty: %v", err)
 	}
-	payload := seq[strings.LastIndex(seq, ";")+1 : strings.LastIndex(seq, "\x1b\\")]
+	payload := extractKittyPayload(seq)
 	raw, err := base64.StdEncoding.DecodeString(payload)
 	if err != nil {
 		t.Fatalf("payload is not base64: %v", err)
@@ -128,18 +157,185 @@ func TestKittyFitCanvasIsOpaque(t *testing.T) {
 	if err != nil {
 		t.Fatalf("payload is not png: %v", err)
 	}
-	for y := decoded.Bounds().Min.Y; y < decoded.Bounds().Max.Y; y++ {
-		for x := decoded.Bounds().Min.X; x < decoded.Bounds().Max.X; x++ {
-			_, _, _, a := decoded.At(x, y).RGBA()
-			if a != 0xffff {
-				t.Fatalf("pixel (%d,%d) alpha = %#x, want opaque", x, y, a)
-			}
+	for _, point := range []image.Point{
+		{X: decoded.Bounds().Dx()/2 - 1, Y: decoded.Bounds().Min.Y},
+		{X: decoded.Bounds().Dx()/2 + 1, Y: decoded.Bounds().Min.Y},
+		{X: decoded.Bounds().Dx()/2 - 1, Y: decoded.Bounds().Max.Y - 1},
+		{X: decoded.Bounds().Dx()/2 + 1, Y: decoded.Bounds().Max.Y - 1},
+	} {
+		_, _, _, a := decoded.At(point.X, point.Y).RGBA()
+		if a != 0xffff {
+			t.Fatalf("drawn pixel %v alpha = %#x, want opaque", point, a)
 		}
+	}
+}
+
+func TestKittyFitUsesPixelAspectInsideCanvas(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: 40, B: 20, A: 255})
+		}
+	}
+
+	canvas := imageCanvas(img, 10, 5, ScaleFit, 0, 0)
+
+	for _, point := range []image.Point{
+		canvas.Bounds().Min,
+		{X: canvas.Bounds().Max.X - 1, Y: canvas.Bounds().Min.Y},
+		{X: canvas.Bounds().Min.X, Y: canvas.Bounds().Max.Y - 1},
+		{X: canvas.Bounds().Max.X - 1, Y: canvas.Bounds().Max.Y - 1},
+	} {
+		r, g, b, _ := canvas.At(point.X, point.Y).RGBA()
+		if r == 0 && g == 0 && b == 0 {
+			t.Fatalf("square artwork should fill a square kitty pixel canvas; corner %v is still background", point)
+		}
+	}
+}
+
+func TestKittyFitDoesNotPaintLetterboxBackground(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: 40, B: 20, A: 255})
+		}
+	}
+
+	canvas := imageCanvas(img, 10, 10, ScaleFit, 0, 0)
+	bounds := canvas.Bounds()
+	for _, point := range []image.Point{
+		{X: bounds.Min.X, Y: bounds.Min.Y},
+		{X: bounds.Max.X - 1, Y: bounds.Min.Y},
+		{X: bounds.Min.X, Y: bounds.Max.Y - 1},
+		{X: bounds.Max.X - 1, Y: bounds.Max.Y - 1},
+	} {
+		_, _, _, a := canvas.At(point.X, point.Y).RGBA()
+		if a != 0 {
+			t.Fatalf("fit letterbox pixel %v alpha = %#x, want transparent", point, a)
+		}
+	}
+}
+
+func TestKittyCanvasUsesNonDefaultCellSize(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: 40, B: 20, A: 255})
+		}
+	}
+
+	canvas := imageCanvas(img, 5, 3, ScaleStretch, 9, 20)
+	if got := canvas.Bounds().Dx(); got != 45 {
+		t.Fatalf("canvas width = %d, want 45 (5*9)", got)
+	}
+	if got := canvas.Bounds().Dy(); got != 60 {
+		t.Fatalf("canvas height = %d, want 60 (3*20)", got)
 	}
 }
 
 func TestClearKittyImage(t *testing.T) {
 	if got := ClearKittyImage(7); got != "\x1b_Ga=d,d=I,i=7\x1b\\" {
 		t.Fatalf("ClearKittyImage() = %q", got)
+	}
+}
+
+func TestKittyRenderChunksLargePayload(t *testing.T) {
+	// Large enough canvas (100*10 × 50*20 = 1000×1000 px) that the base64
+	// PNG payload exceeds kittyMaxChunkSize (4096).
+	img := image.NewRGBA(image.Rect(0, 0, 200, 200))
+	for y := 0; y < 200; y++ {
+		for x := 0; x < 200; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x*7 + y*3), G: uint8(x*5 + y*11), B: uint8(x*13 + y*7), A: 255})
+		}
+	}
+
+	seq, err := RenderKitty(img, KittyPlacement{
+		ID:     1,
+		X:      1,
+		Y:      1,
+		Width:  100,
+		Height: 50,
+		Scale:  ScaleStretch,
+	})
+	if err != nil {
+		t.Fatalf("RenderKitty: %v", err)
+	}
+
+	// First chunk: full command header + m=1 (more data follows).
+	if !strings.Contains(seq, "\x1b_Ga=T,t=d,f=100,i=1,c=100,r=50,z=1,m=1;") {
+		t.Fatalf("first chunk must have m=1 when payload is chunked: %q", seq)
+	}
+
+	// Middle chunks: only m=1, no i=ID (per kitty spec).
+	if !strings.Contains(seq, "\x1b_Gm=1;") {
+		t.Fatalf("large payload should have m=1 continuation chunks: %q", seq)
+	}
+
+	// Last chunk: m=0 (sequence complete).
+	if !strings.Contains(seq, "\x1b_Gm=0;") {
+		t.Fatalf("chunked payload must end with m=0 terminator: %q", seq)
+	}
+
+	// Subsequent chunks must NOT contain i=ID (spec: correlation is by ordering).
+	if strings.Contains(seq, "\x1b_Gm=1,i=") || strings.Contains(seq, "\x1b_Gm=0,i=") {
+		t.Fatalf("continuation chunks must not have i=ID: %q", seq)
+	}
+
+	// The concatenated payload must be valid base64 that decodes to a PNG.
+	payload := extractKittyPayload(seq)
+	if len(payload) <= kittyMaxChunkSize {
+		t.Fatalf("payload should exceed chunk size: got %d bytes", len(payload))
+	}
+	raw, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		t.Fatalf("concatenated payload is not base64: %v", err)
+	}
+	if _, err := png.Decode(bytes.NewReader(raw)); err != nil {
+		t.Fatalf("concatenated payload is not png: %v", err)
+	}
+
+	// Each individual chunk payload must be <= kittyMaxChunkSize.
+	parts := strings.Split(seq, "\x1b_G")
+	for _, part := range parts {
+		if part == "" || strings.HasPrefix(part, "a=d") {
+			continue
+		}
+		semi := strings.Index(part, ";")
+		if semi < 0 {
+			continue
+		}
+		st := strings.Index(part[semi+1:], "\x1b\\")
+		if st < 0 {
+			continue
+		}
+		chunkPayload := part[semi+1 : semi+1+st]
+		if len(chunkPayload) > kittyMaxChunkSize {
+			t.Fatalf("chunk payload %d bytes exceeds max %d", len(chunkPayload), kittyMaxChunkSize)
+		}
+	}
+}
+
+func TestKittyRenderSmallPayloadNotChunked(t *testing.T) {
+	// Small image: base64 payload fits in a single chunk (<= 4096 bytes).
+	// Must NOT use m=1/m=0 — just a plain single APC.
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	img.Set(0, 0, color.RGBA{R: 255, A: 255})
+
+	seq, err := RenderKitty(img, KittyPlacement{
+		ID:     1,
+		X:      1,
+		Y:      1,
+		Width:  2,
+		Height: 2,
+		Scale:  ScaleStretch,
+	})
+	if err != nil {
+		t.Fatalf("RenderKitty: %v", err)
+	}
+	if strings.Contains(seq, "m=1") || strings.Contains(seq, "m=0") {
+		t.Fatalf("small payload should not be chunked (no m= flag): %q", seq)
+	}
+	if !strings.Contains(seq, "\x1b_Ga=T,t=d,f=100,i=1,c=2,r=2,z=1;") {
+		t.Fatalf("small payload should have standard transmit header: %q", seq)
 	}
 }

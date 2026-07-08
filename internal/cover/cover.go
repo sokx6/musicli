@@ -110,17 +110,19 @@ func decodeImageFile(path string) (image.Image, error) {
 // cells. The output is exactly width cells by height rows unless width or
 // height is zero.
 func RenderHalfBlock(img image.Image, width, height int) string {
-	return RenderHalfBlockWithScale(img, width, height, ScaleStretch)
+	return RenderHalfBlockWithScale(img, width, height, ScaleStretch, 0, 0)
 }
 
 // RenderHalfBlockWithScale renders an image as terminal text using upper-half
 // block cells. Fit mode preserves the image aspect ratio and centers it inside
-// the requested bounds; stretch mode fills the full bounds.
-func RenderHalfBlockWithScale(img image.Image, width, height int, mode ScaleMode) string {
+// the requested bounds; stretch mode fills the full bounds. cellW and cellH
+// are the terminal cell pixel dimensions used for aspect ratio calculation;
+// zero defaults to 10x20.
+func RenderHalfBlockWithScale(img image.Image, width, height int, mode ScaleMode, cellW, cellH int) string {
 	if img == nil || width <= 0 || height <= 0 {
 		return ""
 	}
-	drawW, drawH := coverDrawSize(img.Bounds(), width, height, mode)
+	drawW, drawH := coverDrawSize(img.Bounds(), width, height, mode, cellW, cellH)
 	offsetX := (width - drawW) / 2
 	offsetY := (height - drawH) / 2
 
@@ -154,7 +156,7 @@ func RenderHalfBlockWithScale(img image.Image, width, height int, mode ScaleMode
 	return b.String()
 }
 
-func coverDrawSize(bounds image.Rectangle, width, height int, mode ScaleMode) (int, int) {
+func coverDrawSize(bounds image.Rectangle, width, height int, mode ScaleMode, cellW, cellH int) (int, int) {
 	if mode == ScaleStretch {
 		return width, height
 	}
@@ -163,28 +165,48 @@ func coverDrawSize(bounds image.Rectangle, width, height int, mode ScaleMode) (i
 	if imgW <= 0 || imgH <= 0 {
 		return width, height
 	}
-
-	terminalPixelH := height * 2
-	drawW := width
-	drawPixelH := imgH * drawW / imgW
-	if drawPixelH > terminalPixelH {
-		drawPixelH = terminalPixelH
-		drawW = imgW * drawPixelH / imgH
+	if cellW <= 0 {
+		cellW = kittyCellPixelWidth
 	}
-	drawH := (drawPixelH + 1) / 2
-	if drawW < 1 {
-		drawW = 1
+	if cellH <= 0 {
+		cellH = kittyCellPixelHeight
 	}
-	if drawH < 1 {
-		drawH = 1
+	// Compute draw size in actual terminal pixels, then convert to cells.
+	availW := width * cellW
+	availH := height * cellH
+	pxW := availW
+	pxH := imgH * pxW / imgW
+	if pxH > availH {
+		pxH = availH
+		pxW = imgW * pxH / imgH
 	}
-	if drawW > width {
-		drawW = width
+	if pxW < 1 {
+		pxW = 1
 	}
-	if drawH > height {
-		drawH = height
+	if pxH < 1 {
+		pxH = 1
 	}
-	return drawW, drawH
+	if pxW > availW {
+		pxW = availW
+	}
+	if pxH > availH {
+		pxH = availH
+	}
+	cellsW := pxW / cellW
+	cellsH := (pxH + cellH - 1) / cellH
+	if cellsW < 1 {
+		cellsW = 1
+	}
+	if cellsH < 1 {
+		cellsH = 1
+	}
+	if cellsW > width {
+		cellsW = width
+	}
+	if cellsH > height {
+		cellsH = height
+	}
+	return cellsW, cellsH
 }
 
 func sample(img image.Image, x, y, width, height int) color.RGBA {
