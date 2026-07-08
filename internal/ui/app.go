@@ -663,10 +663,12 @@ func (a *App) clearScreenAndKittyCoverCmd() tea.Cmd {
 	a.lastKittyFingerprint = ""
 	if a.coverProtocol == cover.ProtocolKitty {
 		// ponytail: For kitty, ClearScreen forces a full repaint that erases the
-		// virtual image overlay. Skip it — the next tick's kittyCoverCmd()
-		// redraws after the view settles. The chunked APC payload (<=4096 bytes
-		// per chunk) prevents base64 from leaking even if the drawSeq and view
-		// diff land in the same renderer flush.
+		// virtual image overlay. Skip it; if lyrics-only is active, clear the
+		// overlay immediately, otherwise the next tick redraws after the view
+		// settles.
+		if a.leftContent == leftContentLyrics {
+			return a.kittyCoverCmd()
+		}
 		return nil
 	}
 	return tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, a.kittyCoverCmd())

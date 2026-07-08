@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/locxl/musicli/internal/cover"
 	"github.com/locxl/musicli/internal/library"
 	"github.com/locxl/musicli/internal/log"
 	"github.com/locxl/musicli/internal/lyrics"
@@ -622,6 +623,27 @@ func TestKittyToggleResetsDedupForNextTickRedraw(t *testing.T) {
 		t.Fatal("should redraw after dedup reset from toggle")
 	} else if _, ok := cmd().(tea.RawMsg); !ok {
 		t.Fatalf("redraw command returned %T, want tea.RawMsg", cmd())
+	}
+}
+
+func TestKittyToggleToLyricsClearsCoverImmediately(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty"})
+	app.coverImage = testCoverImage(4, 4)
+	app.leftContent = leftContentLyrics
+	app.leftW = 20
+	app.height = 10
+
+	cmd := app.clearScreenAndKittyCoverCmd()
+	if cmd == nil {
+		t.Fatal("kitty lyrics-only toggle should clear the cover immediately")
+	}
+	msg := cmd()
+	raw, ok := msg.(tea.RawMsg)
+	if !ok {
+		t.Fatalf("clear command returned %T, want tea.RawMsg", msg)
+	}
+	if fmt.Sprint(raw.Msg) != cover.ClearKittyImage(1) {
+		t.Fatalf("clear command = %q, want kitty image clear", raw.Msg)
 	}
 }
 
