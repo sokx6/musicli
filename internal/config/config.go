@@ -49,6 +49,7 @@ type Lyrics struct {
 	AutoFetch bool     `toml:"auto_fetch"`
 	Sources   []string `toml:"sources"`
 	SaveDir   string   `toml:"save_dir"`
+	Align     string   `toml:"align"`
 }
 
 type Cover struct {
@@ -142,6 +143,14 @@ func (c *Config) applyDefaults(warnings *[]string) {
 	default:
 		*warnings = append(*warnings, fmt.Sprintf("playback.repeat %q invalid, using list", c.Playback.Repeat))
 		c.Playback.Repeat = "list"
+	}
+	switch c.Lyrics.Align {
+	case "", "left":
+		c.Lyrics.Align = "left"
+	case "center", "right":
+	default:
+		*warnings = append(*warnings, fmt.Sprintf("lyrics.align %q invalid, using left", c.Lyrics.Align))
+		c.Lyrics.Align = "left"
 	}
 	switch c.Library.SortField {
 	case "title", "artist", "album", "size", "year":

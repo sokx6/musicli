@@ -29,6 +29,9 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	if c.Cover.Scale != "fit" {
 		t.Errorf("default cover scale = %q, want fit", c.Cover.Scale)
 	}
+	if c.Lyrics.Align != "left" {
+		t.Errorf("default lyrics align = %q, want left", c.Lyrics.Align)
+	}
 }
 
 func TestLoadCreatesDefaultOnFirstRun(t *testing.T) {
@@ -59,6 +62,8 @@ volume = 200
 speed = 5.0
 [playback]
 repeat = "bogus"
+[lyrics]
+align = "sideways"
 [library]
 sort_field = "nonsense"
 [ui]
@@ -85,6 +90,9 @@ level = "wat"
 	if c.Playback.Repeat != "list" {
 		t.Errorf("clamped repeat = %q, want list", c.Playback.Repeat)
 	}
+	if c.Lyrics.Align != "left" {
+		t.Errorf("clamped lyrics align = %q, want left", c.Lyrics.Align)
+	}
 	if c.Library.SortField != "title" {
 		t.Errorf("clamped sort_field = %q, want title", c.Library.SortField)
 	}
@@ -100,8 +108,30 @@ level = "wat"
 	if c.Cover.Protocol != "auto" {
 		t.Errorf("clamped cover protocol = %q, want auto", c.Cover.Protocol)
 	}
-	if len(warnings) < 8 {
-		t.Errorf("expected >=8 warnings, got %d: %v", len(warnings), warnings)
+	if len(warnings) < 9 {
+		t.Errorf("expected >=9 warnings, got %d: %v", len(warnings), warnings)
+	}
+}
+
+func TestLoadAcceptsConfiguredLyricAlign(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	raw := `
+[lyrics]
+align = "center"
+`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if c.Lyrics.Align != "center" {
+		t.Fatalf("lyrics align = %q, want center", c.Lyrics.Align)
 	}
 }
 

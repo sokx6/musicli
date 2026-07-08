@@ -95,6 +95,7 @@ type Options struct {
 	GroupByAlbum      bool
 	PlaybackRepeat    string
 	PlaybackShuffle   bool
+	LyricsAlign       string
 }
 
 type leftContentMode int
@@ -202,6 +203,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 	styles := NewStyles(t)
 	delegate := newListDelegate(t)
 	coverScale := coverScaleFromString(opts.CoverScale)
+	lyricAlign := lyricAlignFromString(opts.LyricsAlign)
 	coverProtocol := cover.SelectProtocol(opts.CoverProtocol, os.Getenv)
 
 	trackList := list.New([]list.Item{}, delegate, 40, 20)
@@ -239,6 +241,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 		leftContent:     leftContentBoth,
 		currentAlbum:    -1,
 		coverScale:      coverScale,
+		lyricAlign:      lyricAlign,
 		coverProtocol:   coverProtocol,
 		lastState:       audio.StateStopped,
 		lastLyricRender: lyricRenderState{line: -1, word: -1},
@@ -944,6 +947,17 @@ func (a *App) toggleLyricAlign() {
 		a.lyricAlign = lyricAlignRight
 	default:
 		a.lyricAlign = lyricAlignLeft
+	}
+}
+
+func lyricAlignFromString(s string) lyricAlignMode {
+	switch s {
+	case "center":
+		return lyricAlignCenter
+	case "right":
+		return lyricAlignRight
+	default:
+		return lyricAlignLeft
 	}
 }
 

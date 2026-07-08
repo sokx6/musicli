@@ -241,6 +241,7 @@ ui → {audio, library, playlist, lyrics, cover, theme}  # 唯一依赖 bubblete
 - 窄终端下状态行和快捷键提示逐级降级为简写，必要时隐藏低优先级提示，保证每行不换行
 - `a` 切换歌词对齐：左对齐 → 居中 → 右对齐 → 左对齐
 - 歌词对齐只作用在歌词 pane 内；封面+歌词同时显示时，歌词不会进入封面区域
+- `[lyrics] align = "left" | "center" | "right"` 控制启动时默认歌词对齐，`a` 只切换当前会话
 - CJK 逐字高亮当前行仍保持定宽渲染，避免宽字符高亮状态变化时产生偏移
 
 ## 7. 日志系统
@@ -290,6 +291,7 @@ group_by_album = true
 auto_fetch = false
 sources = ["lrclib", "qq", "netease", "kugou"]
 save_dir = ""        # empty = ~/.cache/musicli/lyrics
+align = "left"       # left | center | right
 
 [cover]
 show = true

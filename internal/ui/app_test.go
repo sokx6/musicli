@@ -586,6 +586,22 @@ func TestToggleLyricAlignCyclesModes(t *testing.T) {
 	}
 }
 
+func TestConfiguredLyricAlignInitializesMode(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		LyricsAlign: "right",
+	})
+	if app.lyricAlign != lyricAlignRight {
+		t.Fatalf("configured lyric align = %v, want right", app.lyricAlign)
+	}
+
+	app = NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		LyricsAlign: "sideways",
+	})
+	if app.lyricAlign != lyricAlignLeft {
+		t.Fatalf("invalid configured lyric align = %v, want left", app.lyricAlign)
+	}
+}
+
 func TestLyricAlignKeyTogglesMode(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 

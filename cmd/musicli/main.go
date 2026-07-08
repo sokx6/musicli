@@ -60,6 +60,7 @@ func run() error {
 		"lyrics.auto_fetch", cfg.Lyrics.AutoFetch,
 		"lyrics.sources", cfg.Lyrics.Sources,
 		"lyrics.save_dir", cfg.Lyrics.SaveDir,
+		"lyrics.align", cfg.Lyrics.Align,
 		"cover.show", cfg.Cover.Show,
 		"cover.protocol", cfg.Cover.Protocol,
 		"cover.scale", cfg.Cover.Scale,
@@ -114,6 +115,7 @@ func run() error {
 		GroupByAlbum:      cfg.Library.GroupByAlbum,
 		PlaybackRepeat:    cfg.Playback.Repeat,
 		PlaybackShuffle:   cfg.Playback.Shuffle,
+		LyricsAlign:       cfg.Lyrics.Align,
 	})
 	fl.Info("ui app created")
 
