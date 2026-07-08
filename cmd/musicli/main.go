@@ -109,6 +109,9 @@ func run() error {
 		DisableCover:      !cfg.Cover.Show,
 		CoverScale:        cfg.Cover.Scale,
 		CoverProtocol:     cfg.Cover.Protocol,
+		LibrarySortField:  cfg.Library.SortField,
+		LibrarySortOrder:  cfg.Library.SortOrder,
+		GroupByAlbum:      cfg.Library.GroupByAlbum,
 	})
 	fl.Info("ui app created")
 

@@ -23,6 +23,9 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	if c.UI.TrackListMaxWidth != 80 {
 		t.Errorf("default track_list_max_width = %d, want 80", c.UI.TrackListMaxWidth)
 	}
+	if c.Library.GroupByAlbum {
+		t.Errorf("default group_by_album = true, want false")
+	}
 	if c.Cover.Scale != "fit" {
 		t.Errorf("default cover scale = %q, want fit", c.Cover.Scale)
 	}

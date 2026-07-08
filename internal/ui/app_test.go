@@ -135,6 +135,134 @@ func TestWidthBelowConfiguredTrackListMaxWidthUsesSingleColumn(t *testing.T) {
 	}
 }
 
+func TestTracksLoadedAppliesConfiguredSort(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		LibrarySortField: "year",
+		LibrarySortOrder: "desc",
+	})
+
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "old.mp3", Title: "Old", Year: 1999},
+		{Path: "new.mp3", Title: "New", Year: 2024},
+		{Path: "mid.mp3", Title: "Mid", Year: 2010},
+	}})
+	app = m.(*App)
+
+	if got := trackTitles(app.tracks); strings.Join(got, ",") != "New,Mid,Old" {
+		t.Fatalf("sorted track titles = %v, want [New Mid Old]", got)
+	}
+	if got := app.trackList.Title; got != "Tracks (3)" {
+		t.Fatalf("track list title = %q, want Tracks (3)", got)
+	}
+}
+
+func TestGroupByAlbumOptionDefaultsToAlbumView(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		GroupByAlbum: true,
+	})
+
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "a1.mp3", Title: "One", Album: "Alpha", AlbumArtist: "Artist A"},
+		{Path: "a2.mp3", Title: "Two", Album: "Alpha", AlbumArtist: "Artist A"},
+		{Path: "b1.mp3", Title: "Three", Album: "Beta", AlbumArtist: "Artist B"},
+	}})
+	app = m.(*App)
+
+	if app.libraryView != libraryViewAlbums {
+		t.Fatalf("library view = %v, want albums", app.libraryView)
+	}
+	if got := app.trackList.Title; got != "Albums (2)" {
+		t.Fatalf("list title = %q, want Albums (2)", got)
+	}
+	if item, ok := app.trackList.SelectedItem().(albumItem); !ok || item.album.Name != "Alpha" {
+		t.Fatalf("selected album item = %#v, want Alpha album", app.trackList.SelectedItem())
+	}
+}
+
+func TestAlbumViewWidthUsesAlbumItems(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		GroupByAlbum: true,
+	})
+
+	m, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	app = m.(*App)
+	m, _ = app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "a1.mp3", Title: "Short", Album: "A very very long album title", AlbumArtist: "Artist"},
+	}})
+	app = m.(*App)
+
+	if got := app.trackList.Width(); got < ansi.StringWidth("A very very long album title") {
+		t.Fatalf("album list width = %d, want enough for album title", got)
+	}
+}
+
+func TestTabTogglesTracksAndAlbums(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "a1.mp3", Title: "One", Album: "Alpha"},
+		{Path: "b1.mp3", Title: "Two", Album: "Beta"},
+	}})
+	app = m.(*App)
+
+	if app.libraryView != libraryViewTracks {
+		t.Fatalf("initial library view = %v, want tracks", app.libraryView)
+	}
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	if app.libraryView != libraryViewAlbums {
+		t.Fatalf("after tab library view = %v, want albums", app.libraryView)
+	}
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	if app.libraryView != libraryViewTracks {
+		t.Fatalf("second tab library view = %v, want tracks", app.libraryView)
+	}
+}
+
+func TestAlbumEnterBackAndTrackMapping(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{GroupByAlbum: true})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "b2.mp3", Title: "Beta 2", Album: "Beta", TrackNo: 2},
+		{Path: "a2.mp3", Title: "Alpha 2", Album: "Alpha", TrackNo: 2},
+		{Path: "a1.mp3", Title: "Alpha 1", Album: "Alpha", TrackNo: 1},
+	}})
+	app = m.(*App)
+
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if app.libraryView != libraryViewAlbumTracks {
+		t.Fatalf("after enter library view = %v, want album tracks", app.libraryView)
+	}
+	if got := app.trackList.Title; got != "Alpha (2)" {
+		t.Fatalf("album track title = %q, want Alpha (2)", got)
+	}
+	if idx := app.selectedTrackIndex(); idx != 0 {
+		t.Fatalf("selected album track index = %d, want 0 for Alpha 1 in sorted global tracks", idx)
+	}
+
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	if app.libraryView != libraryViewTracks {
+		t.Fatalf("tab from album tracks library view = %v, want tracks", app.libraryView)
+	}
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	if app.libraryView != libraryViewAlbums {
+		t.Fatalf("tab back to library view = %v, want albums", app.libraryView)
+	}
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if app.libraryView != libraryViewAlbumTracks {
+		t.Fatalf("after re-enter library view = %v, want album tracks", app.libraryView)
+	}
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if app.libraryView != libraryViewAlbums {
+		t.Fatalf("after backspace library view = %v, want albums", app.libraryView)
+	}
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if app.libraryView != libraryViewAlbumTracks {
+		t.Fatalf("after third enter library view = %v, want album tracks", app.libraryView)
+	}
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if app.libraryView != libraryViewAlbums {
+		t.Fatalf("after escape library view = %v, want albums", app.libraryView)
+	}
+}
+
 func TestLoadCurrentLyricsShowsCurrentLine(t *testing.T) {
 	dir := t.TempDir()
 	audio := filepath.Join(dir, "song.mp3")
@@ -823,6 +951,14 @@ func testCoverImage(w, h int) image.Image {
 		}
 	}
 	return img
+}
+
+func trackTitles(tracks []*library.Track) []string {
+	titles := make([]string, len(tracks))
+	for i, track := range tracks {
+		titles[i] = track.Title
+	}
+	return titles
 }
 
 func trimRightLines(s string) string {

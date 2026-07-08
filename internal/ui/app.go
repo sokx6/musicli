@@ -53,6 +53,35 @@ func (i trackItem) Description() string {
 }
 func (i trackItem) FilterValue() string { return i.track.Title + " " + i.track.Artist }
 
+type albumItem struct {
+	album *library.Album
+}
+
+func (i albumItem) Title() string {
+	if i.album == nil || i.album.Name == "" {
+		return "Unknown Album"
+	}
+	return i.album.Name
+}
+
+func (i albumItem) Description() string {
+	if i.album == nil {
+		return "Unknown Artist - 0 tracks"
+	}
+	artist := i.album.AlbumArtist
+	if artist == "" {
+		artist = "Unknown Artist"
+	}
+	return fmt.Sprintf("%s - %d tracks", artist, len(i.album.Tracks))
+}
+
+func (i albumItem) FilterValue() string {
+	if i.album == nil {
+		return ""
+	}
+	return i.album.Name + " " + i.album.AlbumArtist
+}
+
 // Options configures UI layout behavior.
 type Options struct {
 	// TrackListMaxWidth caps the content-fit track list width. Zero means no cap.
@@ -60,6 +89,9 @@ type Options struct {
 	DisableCover      bool
 	CoverScale        string
 	CoverProtocol     string
+	LibrarySortField  string
+	LibrarySortOrder  string
+	GroupByAlbum      bool
 }
 
 type leftContentMode int
@@ -75,6 +107,14 @@ type coverScaleMode int
 const (
 	coverScaleFit coverScaleMode = iota
 	coverScaleStretch
+)
+
+type libraryViewMode int
+
+const (
+	libraryViewTracks libraryViewMode = iota
+	libraryViewAlbums
+	libraryViewAlbumTracks
 )
 
 // App is the top-level bubbletea model.
@@ -95,6 +135,7 @@ type App struct {
 	progress  progress.Model
 
 	tracks     []*library.Track
+	albums     []*library.Album
 	current    int // index into tracks, -1 if none
 	loading    bool
 	lyric      *lyrics.Lyric
@@ -102,6 +143,8 @@ type App struct {
 	coverImage image.Image
 
 	leftContent     leftContentMode
+	libraryView     libraryViewMode
+	currentAlbum    int
 	coverScale      coverScaleMode
 	coverProtocol   string
 	cellPixelW      int
@@ -180,6 +223,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 		volume:          80,
 		speed:           1.0,
 		leftContent:     leftContentBoth,
+		currentAlbum:    -1,
 		coverScale:      coverScale,
 		coverProtocol:   coverProtocol,
 		lastState:       audio.StateStopped,
@@ -292,12 +336,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		fl.Debug("received msg", "type", "TracksLoadedMsg", "count", len(msg.Tracks))
 		a.loading = false
 		a.tracks = msg.Tracks
-		items := make([]list.Item, len(msg.Tracks))
-		for i, t := range msg.Tracks {
-			items[i] = trackItem{track: t}
+		library.SortTracks(a.tracks, library.SortField(a.options.LibrarySortField), a.options.LibrarySortOrder)
+		a.albums = library.GroupByAlbum(a.tracks)
+		a.currentAlbum = -1
+		if a.options.GroupByAlbum {
+			a.setLibraryView(libraryViewAlbums)
+		} else {
+			a.setLibraryView(libraryViewTracks)
 		}
-		a.trackList.SetItems(items)
-		a.trackList.Title = fmt.Sprintf("Tracks (%d)", len(msg.Tracks))
 		a.resizeComponents()
 		a.log.Info("library loaded", "count", len(msg.Tracks))
 		return a, nil
@@ -414,6 +460,19 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.toggleCoverScale()
 		return a, a.clearScreenAndKittyCoverCmd()
 
+	case key.Matches(msg, a.keys.ToggleList):
+		fl.Debug("key matched", "key", keyStr, "action", "toggleLibraryView")
+		a.toggleLibraryView()
+		a.resizeComponents()
+		return a, nil
+
+	case key.Matches(msg, a.keys.Back):
+		fl.Debug("key matched", "key", keyStr, "action", "backToAlbums")
+		if a.backToAlbums() {
+			a.resizeComponents()
+			return a, nil
+		}
+
 	case key.Matches(msg, a.keys.SeekFwd):
 		fl.Debug("key matched", "key", keyStr, "action", "seekRelative+5000")
 		return a, a.seekRelative(5000)
@@ -487,7 +546,7 @@ func (a *App) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.trackList, cmd = a.trackList.Update(localMsg)
 		newIdx := a.trackList.Index()
-		if msg.Button == tea.MouseLeft && newIdx >= 0 && newIdx != prevIdx {
+		if msg.Button == tea.MouseLeft && newIdx >= 0 && (newIdx != prevIdx || a.libraryView == libraryViewAlbums) {
 			return a, a.playSelected()
 		}
 		return a, cmd
@@ -496,11 +555,128 @@ func (a *App) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+func (a *App) setLibraryView(mode libraryViewMode) {
+	a.libraryView = mode
+	switch mode {
+	case libraryViewAlbums:
+		a.currentAlbum = -1
+		items := make([]list.Item, len(a.albums))
+		for i, album := range a.albums {
+			items[i] = albumItem{album: album}
+		}
+		a.trackList.SetItems(items)
+		a.trackList.Title = fmt.Sprintf("Albums (%d)", len(a.albums))
+	case libraryViewAlbumTracks:
+		if a.currentAlbum < 0 || a.currentAlbum >= len(a.albums) {
+			a.setLibraryView(libraryViewAlbums)
+			return
+		}
+		album := a.albums[a.currentAlbum]
+		items := make([]list.Item, len(album.Tracks))
+		for i, track := range album.Tracks {
+			items[i] = trackItem{track: track}
+		}
+		a.trackList.SetItems(items)
+		a.trackList.Title = fmt.Sprintf("%s (%d)", album.Name, len(album.Tracks))
+	default:
+		a.currentAlbum = -1
+		items := make([]list.Item, len(a.tracks))
+		for i, track := range a.tracks {
+			items[i] = trackItem{track: track}
+		}
+		a.trackList.SetItems(items)
+		a.trackList.Title = fmt.Sprintf("Tracks (%d)", len(a.tracks))
+	}
+	a.trackList.ResetSelected()
+}
+
+func (a *App) toggleLibraryView() {
+	if a.libraryView == libraryViewTracks {
+		a.setLibraryView(libraryViewAlbums)
+		return
+	}
+	a.setLibraryView(libraryViewTracks)
+}
+
+func (a *App) enterAlbum() bool {
+	if a.libraryView != libraryViewAlbums {
+		return false
+	}
+	idx := a.trackList.Index()
+	if idx < 0 || idx >= len(a.albums) {
+		return false
+	}
+	a.currentAlbum = idx
+	a.setLibraryView(libraryViewAlbumTracks)
+	return true
+}
+
+func (a *App) backToAlbums() bool {
+	if a.libraryView != libraryViewAlbumTracks {
+		return false
+	}
+	a.setLibraryView(libraryViewAlbums)
+	return true
+}
+
+func (a *App) selectedTrackIndex() int {
+	idx := a.trackList.Index()
+	switch a.libraryView {
+	case libraryViewTracks:
+		if idx < 0 || idx >= len(a.tracks) {
+			return -1
+		}
+		return idx
+	case libraryViewAlbumTracks:
+		if a.currentAlbum < 0 || a.currentAlbum >= len(a.albums) {
+			return -1
+		}
+		albumTracks := a.albums[a.currentAlbum].Tracks
+		if idx < 0 || idx >= len(albumTracks) {
+			return -1
+		}
+		selected := albumTracks[idx]
+		for i, track := range a.tracks {
+			if track == selected {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func (a *App) selectCurrentInLibraryView() {
+	if a.current < 0 || a.current >= len(a.tracks) {
+		return
+	}
+	switch a.libraryView {
+	case libraryViewTracks:
+		a.trackList.Select(a.current)
+	case libraryViewAlbumTracks:
+		if a.currentAlbum < 0 || a.currentAlbum >= len(a.albums) {
+			return
+		}
+		currentTrack := a.tracks[a.current]
+		for i, track := range a.albums[a.currentAlbum].Tracks {
+			if track == currentTrack {
+				a.trackList.Select(i)
+				return
+			}
+		}
+	}
+}
+
 // --- playback commands ---
 
 func (a *App) playSelected() tea.Cmd {
 	fl := a.log.WithFunc("playSelected")
-	idx := a.trackList.Index()
+	if a.libraryView == libraryViewAlbums {
+		if a.enterAlbum() {
+			a.resizeComponents()
+		}
+		return nil
+	}
+	idx := a.selectedTrackIndex()
 	if idx < 0 || idx >= len(a.tracks) {
 		fl.Debug("invalid index", "idx", idx, "tracks", len(a.tracks))
 		return nil
@@ -546,7 +722,7 @@ func (a *App) nextTrack() tea.Cmd {
 	}
 	prevIdx := a.current
 	a.current = (a.current + 1) % len(a.tracks)
-	a.trackList.Select(a.current)
+	a.selectCurrentInLibraryView()
 	t := a.tracks[a.current]
 	fl.Debug("next track", "prevIdx", prevIdx, "newIdx", a.current, "title", t.Title)
 	if err := a.engine.Play(t.Path); err != nil {
@@ -569,7 +745,7 @@ func (a *App) prevTrack() tea.Cmd {
 	} else {
 		a.current = (a.current - 1 + len(a.tracks)) % len(a.tracks)
 	}
-	a.trackList.Select(a.current)
+	a.selectCurrentInLibraryView()
 	t := a.tracks[a.current]
 	fl.Debug("prev track", "prevIdx", prevIdx, "newIdx", a.current, "title", t.Title)
 	if err := a.engine.Play(t.Path); err != nil {

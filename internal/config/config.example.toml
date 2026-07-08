@@ -13,7 +13,7 @@ shuffle = false
 [library]
 sort_field = "title" # title | artist | album | size | year
 sort_order = "asc"   # asc | desc
-group_by_album = true
+group_by_album = false
 
 [lyrics]
 auto_fetch = false   # auto-crawl lyrics when local file missing (phase 12)

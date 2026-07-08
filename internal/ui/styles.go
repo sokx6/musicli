@@ -110,6 +110,8 @@ type keyMap struct {
 	Prev        key.Binding
 	ToggleView  key.Binding
 	ToggleScale key.Binding
+	ToggleList  key.Binding
+	Back        key.Binding
 	SeekFwd     key.Binding
 	SeekBack    key.Binding
 	VolUp       key.Binding
@@ -131,6 +133,8 @@ func defaultKeyMap() keyMap {
 		Prev:        key.NewBinding(key.WithKeys("b", "h"), key.WithHelp("b", "prev")),
 		ToggleView:  key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cover/lyrics")),
 		ToggleScale: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "cover scale")),
+		ToggleList:  key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "tracks/albums")),
+		Back:        key.NewBinding(key.WithKeys("esc", "backspace"), key.WithHelp("esc", "back")),
 		SeekFwd:     key.NewBinding(key.WithKeys("right", "L"), key.WithHelp("→", "seek +5s")),
 		SeekBack:    key.NewBinding(key.WithKeys("left", "H"), key.WithHelp("←", "seek -5s")),
 		VolUp:       key.NewBinding(key.WithKeys("+", "="), key.WithHelp("+", "vol up")),
