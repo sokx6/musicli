@@ -112,6 +112,14 @@ const (
 	coverScaleStretch
 )
 
+type lyricAlignMode int
+
+const (
+	lyricAlignLeft lyricAlignMode = iota
+	lyricAlignCenter
+	lyricAlignRight
+)
+
 type libraryViewMode int
 
 const (
@@ -149,6 +157,7 @@ type App struct {
 	libraryView     libraryViewMode
 	currentAlbum    int
 	coverScale      coverScaleMode
+	lyricAlign      lyricAlignMode
 	coverProtocol   string
 	cellPixelW      int
 	cellPixelH      int
@@ -468,6 +477,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.ToggleShuffle):
 		fl.Debug("key matched", "key", keyStr, "action", "toggleShuffle")
 		a.toggleShuffle()
+		return a, nil
+
+	case key.Matches(msg, a.keys.ToggleLyricAlign):
+		fl.Debug("key matched", "key", keyStr, "action", "toggleLyricAlign")
+		a.toggleLyricAlign()
 		return a, nil
 
 	case key.Matches(msg, a.keys.ToggleView):
@@ -920,6 +934,17 @@ func (a *App) toggleRepeat() {
 
 func (a *App) toggleShuffle() {
 	a.options.PlaybackShuffle = !a.options.PlaybackShuffle
+}
+
+func (a *App) toggleLyricAlign() {
+	switch a.lyricAlign {
+	case lyricAlignLeft:
+		a.lyricAlign = lyricAlignCenter
+	case lyricAlignCenter:
+		a.lyricAlign = lyricAlignRight
+	default:
+		a.lyricAlign = lyricAlignLeft
+	}
 }
 
 func coverScaleFromString(s string) coverScaleMode {
@@ -1412,19 +1437,19 @@ func (a *App) renderLyricsPane(w, h int) string {
 		switch visual.kind {
 		case lyricRowOriginal:
 			if visual.lineIdx == idx {
-				rendered = append(rendered, a.renderCurrentLyricLine(a.lyric.Lines[visual.lineIdx], w-1))
+				rendered = append(rendered, a.alignLyricLine(a.renderCurrentLyricLine(a.lyric.Lines[visual.lineIdx], w), w))
 			} else {
-				text := truncateCellText(a.lyric.Lines[visual.lineIdx].Text, w-1)
-				rendered = append(rendered, padCellText(a.styles.muted.Render(text), w-1))
+				text := truncateCellText(a.lyric.Lines[visual.lineIdx].Text, w)
+				rendered = append(rendered, a.alignLyricLine(a.styles.muted.Render(text), w))
 			}
 		case lyricRowTranslation:
-			text := truncateCellText(visual.text, w-1)
-			rendered = append(rendered, padCellText(a.styles.muted.Render(text), w-1))
+			text := truncateCellText(visual.text, w)
+			rendered = append(rendered, a.alignLyricLine(a.styles.muted.Render(text), w))
 		default:
-			rendered = append(rendered, strings.Repeat(" ", max(0, w-1)))
+			rendered = append(rendered, strings.Repeat(" ", max(0, w)))
 		}
 	}
-	return lipgloss.NewStyle().Width(w).Height(h).PaddingLeft(1).Render(strings.Join(rendered, "\n"))
+	return fitBlock(strings.Join(rendered, "\n"), w, h)
 }
 
 type lyricRowKind int
@@ -1516,6 +1541,16 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 	return padCellText(b.String(), width)
 }
 
+func (a *App) alignLyricLine(line string, width int) string {
+	if a.lyricAlign != lyricAlignLeft {
+		line = strings.TrimRight(line, " ")
+	}
+	if ansi.StringWidth(line) == width {
+		return fitLine(line, width)
+	}
+	return alignCellText(line, width, a.lyricAlign)
+}
+
 func wordsText(words []lyrics.Word) string {
 	var b strings.Builder
 	for _, word := range words {
@@ -1605,6 +1640,53 @@ func padCellText(s string, width int) string {
 	return s
 }
 
+func fitLine(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(s) > width {
+		s = ansi.Truncate(s, width, "")
+	}
+	return padCellText(s, width)
+}
+
+func bestFitLine(candidates []string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	for _, candidate := range candidates {
+		if ansi.StringWidth(candidate) <= width {
+			return padCellText(candidate, width)
+		}
+	}
+	if len(candidates) == 0 {
+		return strings.Repeat(" ", width)
+	}
+	return fitLine(candidates[len(candidates)-1], width)
+}
+
+func alignCellText(s string, width int, align lyricAlignMode) string {
+	if width <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(s) > width {
+		s = ansi.Truncate(s, width, "")
+	}
+	pad := width - ansi.StringWidth(s)
+	if pad <= 0 {
+		return s
+	}
+	switch align {
+	case lyricAlignCenter:
+		left := pad / 2
+		return strings.Repeat(" ", left) + s + strings.Repeat(" ", pad-left)
+	case lyricAlignRight:
+		return strings.Repeat(" ", pad) + s
+	default:
+		return s + strings.Repeat(" ", pad)
+	}
+}
+
 func fitBlock(s string, width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
@@ -1627,8 +1709,23 @@ func fitBlock(s string, width, height int) string {
 
 func (a *App) renderPlayerBar() string {
 	w := a.width
+	contentW := w - a.styles.player.GetHorizontalFrameSize()
+	if contentW < 1 {
+		contentW = 1
+	}
 
-	// state icon
+	content := strings.Join([]string{
+		a.renderPlayerStatusLine(contentW),
+		a.renderProgressBar(contentW),
+		a.renderPlayerHelpLine(contentW),
+	}, "\n")
+
+	return a.styles.player.
+		Width(w).
+		Render(content)
+}
+
+func (a *App) playerStateIcon() string {
 	icon := "▶"
 	switch a.state {
 	case audio.StatePlaying:
@@ -1638,40 +1735,77 @@ func (a *App) renderPlayerBar() string {
 	case audio.StateStopped:
 		icon = "⏹"
 	}
+	return icon
+}
 
-	// progress bar
-	bar := a.progress.View()
+func (a *App) playbackPercent() float64 {
+	if a.dur <= 0 {
+		return 0
+	}
+	percent := float64(a.pos) / float64(a.dur)
+	if percent < 0 {
+		return 0
+	}
+	if percent > 1 {
+		return 1
+	}
+	return percent
+}
 
-	// time
+func (a *App) renderProgressBar(width int) string {
+	if width < 1 {
+		width = 1
+	}
+	p := a.progress
+	p.SetWidth(width)
+	return fitLine(p.ViewAs(a.playbackPercent()), width)
+}
+
+func (a *App) renderPlayerStatusLine(width int) string {
+	if width < 1 {
+		width = 1
+	}
 	timeStr := fmt.Sprintf("%s / %s", fmtDuration(time.Duration(a.pos)*time.Millisecond),
 		fmtDuration(time.Duration(a.dur)*time.Millisecond))
-
-	// playback status
+	compactTimeStr := fmt.Sprintf("%s/%s", fmtDuration(time.Duration(a.pos)*time.Millisecond),
+		fmtDuration(time.Duration(a.dur)*time.Millisecond))
 	shuffle := "off"
 	if a.options.PlaybackShuffle {
 		shuffle = "on"
 	}
-	info := fmt.Sprintf("vol %d%%  speed %.1fx  repeat %s  shuffle %s",
-		a.volume, a.speed, a.playbackRepeat(), shuffle)
-
-	line1 := fmt.Sprintf("%s  %s  %s", icon, timeStr, info)
 	if a.errMsg != "" {
-		line1 = fmt.Sprintf("%s  %s  ⚠ %s", icon, timeStr, a.errMsg)
+		return fitLine(fmt.Sprintf("%s  %s  ! %s", a.playerStateIcon(), compactTimeStr, a.errMsg), width)
 	}
 
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		line1,
-		bar,
-		"  "+a.helpLine(),
-	)
+	candidates := []string{
+		fmt.Sprintf("%s  %s  vol %d%%  speed %.1fx  repeat %s  shuffle %s",
+			a.playerStateIcon(), timeStr, a.volume, a.speed, a.playbackRepeat(), shuffle),
+		fmt.Sprintf("%s  %s  v%d  x%.1f  %s  shuf %s",
+			a.playerStateIcon(), compactTimeStr, a.volume, a.speed, a.playbackRepeat(), shuffle),
+		fmt.Sprintf("%s  %s  v%d  %s",
+			a.playerStateIcon(), compactTimeStr, a.volume, a.playbackRepeat()),
+		fmt.Sprintf("%s  %s", a.playerStateIcon(), compactTimeStr),
+		a.playerStateIcon(),
+	}
+	return bestFitLine(candidates, width)
+}
 
-	return a.styles.player.
-		Width(w).
-		Render(content)
+func (a *App) renderPlayerHelpLine(width int) string {
+	if width < 1 {
+		width = 1
+	}
+	candidates := []string{
+		"q quit  ⏎ play  ␣ pause  n/b next/prev  r repeat  s shuffle  a align  v view  c scale  ←→ seek  / filter",
+		"q quit  ⏎ play  ␣ pause  n/b  r repeat  s shuffle  a align",
+		"q  ⏎  ␣  n/b  r  s  a",
+		"q ⏎ ␣",
+		"",
+	}
+	return bestFitLine(candidates, width)
 }
 
 func (a *App) helpLine() string {
-	return "q quit  ⏎ play  ␣ pause  n/b next/prev  r repeat  s shuffle  v view  c scale  ←→ seek  / filter"
+	return a.renderPlayerHelpLine(a.width)
 }
 
 // fmtDuration formats ms duration as M:SS or H:MM:SS.

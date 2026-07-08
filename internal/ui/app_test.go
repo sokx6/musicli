@@ -421,6 +421,71 @@ func TestPlayerBarShowsPlaybackMode(t *testing.T) {
 	}
 }
 
+func TestPlaybackPercentUsesCurrentPosition(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+
+	app.pos = 500
+	app.dur = 1000
+	if got := app.playbackPercent(); got != 0.5 {
+		t.Fatalf("playback percent = %v, want 0.5", got)
+	}
+
+	app.pos = 500
+	app.dur = 0
+	if got := app.playbackPercent(); got != 0 {
+		t.Fatalf("playback percent with unknown duration = %v, want 0", got)
+	}
+
+	app.pos = 1500
+	app.dur = 1000
+	if got := app.playbackPercent(); got != 1 {
+		t.Fatalf("playback percent past end = %v, want 1", got)
+	}
+}
+
+func TestRenderProgressBarShowsCurrentPosition(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.pos = 500
+	app.dur = 1000
+
+	half := app.renderProgressBar(20)
+	app.pos = 0
+	empty := app.renderProgressBar(20)
+
+	if half == empty {
+		t.Fatalf("progress bar did not change with position: %q", half)
+	}
+	if ansi.StringWidth(ansi.Strip(half)) > 20 {
+		t.Fatalf("progress bar width = %d, want <= 20: %q", ansi.StringWidth(ansi.Strip(half)), half)
+	}
+}
+
+func TestPlayerBarKeepsThreeSingleLineRowsAtNarrowWidths(t *testing.T) {
+	for _, width := range []int{120, 60, 35, 20} {
+		t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
+			app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+				PlaybackRepeat:  "list",
+				PlaybackShuffle: true,
+			})
+			app.width = width
+			app.pos = 83000
+			app.dur = 296000
+			app.volume = 80
+			app.speed = 1.2
+
+			lines := strings.Split(ansi.Strip(app.renderPlayerBar()), "\n")
+			if len(lines) != 4 {
+				t.Fatalf("player bar rendered %d lines, want 1 border + 3 content lines:\n%s", len(lines), strings.Join(lines, "\n"))
+			}
+			for i, line := range lines[1:] {
+				if got := ansi.StringWidth(line); got > width {
+					t.Fatalf("content line %d width = %d, want <= %d: %q", i, got, width, line)
+				}
+			}
+		})
+	}
+}
+
 func TestToggleRepeatCyclesModes(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
 		PlaybackRepeat: "list",
@@ -466,6 +531,78 @@ func TestPlaybackModeKeysToggleModes(t *testing.T) {
 	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Text: "s"}))
 	if !app.options.PlaybackShuffle {
 		t.Fatal("shuffle after s = false, want true")
+	}
+}
+
+func TestToggleLyricAlignCyclesModes(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+
+	if app.lyricAlign != lyricAlignLeft {
+		t.Fatalf("initial lyric align = %v, want left", app.lyricAlign)
+	}
+	app.toggleLyricAlign()
+	if app.lyricAlign != lyricAlignCenter {
+		t.Fatalf("after first toggle lyric align = %v, want center", app.lyricAlign)
+	}
+	app.toggleLyricAlign()
+	if app.lyricAlign != lyricAlignRight {
+		t.Fatalf("after second toggle lyric align = %v, want right", app.lyricAlign)
+	}
+	app.toggleLyricAlign()
+	if app.lyricAlign != lyricAlignLeft {
+		t.Fatalf("after third toggle lyric align = %v, want left", app.lyricAlign)
+	}
+}
+
+func TestLyricAlignKeyTogglesMode(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Text: "a"}))
+	if app.lyricAlign != lyricAlignCenter {
+		t.Fatalf("lyric align after a = %v, want center", app.lyricAlign)
+	}
+}
+
+func TestRenderLyricsPaneAlignsWithinLyricsWidth(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{{StartMs: 0, EndMs: 1000, Text: "short"}}}
+	app.pos = 0
+
+	app.lyricAlign = lyricAlignCenter
+	center := strings.Split(ansi.Strip(app.renderLyricsPane(20, 1)), "\n")[0]
+	if !strings.Contains(center, "       short") {
+		t.Fatalf("center-aligned lyric not centered within width 20: %q", center)
+	}
+	if got := ansi.StringWidth(center); got != 20 {
+		t.Fatalf("center-aligned lyric width = %d, want 20: %q", got, center)
+	}
+
+	app.lyricAlign = lyricAlignRight
+	right := strings.Split(ansi.Strip(app.renderLyricsPane(20, 1)), "\n")[0]
+	if !strings.HasSuffix(right, "short") {
+		t.Fatalf("right-aligned lyric should end with text: %q", right)
+	}
+	if got := ansi.StringWidth(right); got != 20 {
+		t.Fatalf("right-aligned lyric width = %d, want 20: %q", got, right)
+	}
+}
+
+func TestLyricAlignmentDoesNotEnterCoverPane(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.leftContent = leftContentBoth
+	app.coverImage = testCoverImage(8, 8)
+	app.lyricAlign = lyricAlignRight
+	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{{StartMs: 0, EndMs: 1000, Text: "lyric"}}}
+	app.pos = 0
+
+	plain := ansi.Strip(app.renderCoverAndLyricsPane(40, 4))
+	lines := strings.Split(plain, "\n")
+	coverW := 40 / 2
+	for i, line := range lines {
+		coverCells := ansi.Truncate(line, coverW, "")
+		if strings.Contains(coverCells, "lyric") {
+			t.Fatalf("lyric entered cover pane on line %d: %q", i, line)
+		}
 	}
 }
 
@@ -649,7 +786,7 @@ func TestRenderLyricsPaneSeparatesTranslationPairsWithBlankLine(t *testing.T) {
 	app.loadCurrentLyrics()
 
 	view := trimRightLines(stripANSI(app.renderLeftPane()))
-	if !strings.Contains(view, " Original one\n Translation one\n\n Original two\n Translation two") {
+	if !strings.Contains(view, "Original one\nTranslation one\n\nOriginal two\nTranslation two") {
 		t.Fatalf("lyric pairs are not separated as expected:\n%s", view)
 	}
 	currentLine := app.renderCurrentLyricLine(app.lyric.Lines[0], 80)
