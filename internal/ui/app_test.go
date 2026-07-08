@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/locxl/musicli/internal/audio"
 	"github.com/locxl/musicli/internal/cover"
 	"github.com/locxl/musicli/internal/library"
 	"github.com/locxl/musicli/internal/log"
@@ -153,6 +154,232 @@ func TestTracksLoadedAppliesConfiguredSort(t *testing.T) {
 	}
 	if got := app.trackList.Title; got != "Tracks (3)" {
 		t.Fatalf("track list title = %q, want Tracks (3)", got)
+	}
+}
+
+func TestPlaybackOptionsAreStored(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		PlaybackRepeat:  "one",
+		PlaybackShuffle: true,
+	})
+
+	if app.options.PlaybackRepeat != "one" {
+		t.Fatalf("playback repeat = %q, want one", app.options.PlaybackRepeat)
+	}
+	if !app.options.PlaybackShuffle {
+		t.Fatal("playback shuffle = false, want true")
+	}
+}
+
+func TestPlayTrackAtRejectsInvalidIndex(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.tracks = []*library.Track{{Path: "one.mp3", Title: "One"}}
+	app.current = 0
+
+	cmd := app.playTrackAt(-1)
+	if cmd != nil {
+		t.Fatalf("playTrackAt(-1) returned command %#v, want nil", cmd)
+	}
+	if app.current != 0 {
+		t.Fatalf("current = %d, want unchanged 0", app.current)
+	}
+
+	cmd = app.playTrackAt(1)
+	if cmd != nil {
+		t.Fatalf("playTrackAt(1) returned command %#v, want nil", cmd)
+	}
+	if app.current != 0 {
+		t.Fatalf("current = %d, want unchanged 0", app.current)
+	}
+}
+
+func TestNextTrackIndexListOrderWraps(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		PlaybackRepeat: "list",
+	})
+	app.tracks = []*library.Track{
+		{Title: "One"},
+		{Title: "Two"},
+		{Title: "Three"},
+	}
+	app.current = 1
+	if got := app.nextTrackIndex(false); got != 2 {
+		t.Fatalf("next from 1 = %d, want 2", got)
+	}
+	app.current = 2
+	if got := app.nextTrackIndex(false); got != 0 {
+		t.Fatalf("next from 2 = %d, want wrap to 0", got)
+	}
+}
+
+func TestNextTrackIndexRepeatNoneStopsAtEnd(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		PlaybackRepeat: "none",
+	})
+	app.tracks = []*library.Track{
+		{Title: "One"},
+		{Title: "Two"},
+	}
+	app.current = 0
+	if got := app.nextTrackIndex(true); got != 1 {
+		t.Fatalf("auto next from 0 = %d, want 1", got)
+	}
+	app.current = 1
+	if got := app.nextTrackIndex(true); got != -1 {
+		t.Fatalf("auto next from final track = %d, want -1", got)
+	}
+	if got := app.nextTrackIndex(false); got != 0 {
+		t.Fatalf("manual next from final track = %d, want wrap to 0", got)
+	}
+}
+
+func TestNextTrackIndexRepeatOneReplaysOnAutoAdvance(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		PlaybackRepeat: "one",
+	})
+	app.tracks = []*library.Track{
+		{Title: "One"},
+		{Title: "Two"},
+	}
+	app.current = 1
+	if got := app.nextTrackIndex(true); got != 1 {
+		t.Fatalf("auto next in repeat one = %d, want current 1", got)
+	}
+	if got := app.nextTrackIndex(false); got != 0 {
+		t.Fatalf("manual next in repeat one = %d, want normal wrap 0", got)
+	}
+}
+
+func TestNextTrackIndexShuffleAvoidsCurrentWhenPossible(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		PlaybackRepeat:  "list",
+		PlaybackShuffle: true,
+	})
+	app.tracks = []*library.Track{
+		{Title: "One"},
+		{Title: "Two"},
+		{Title: "Three"},
+	}
+	app.current = 1
+	for i := 0; i < 30; i++ {
+		got := app.nextTrackIndex(true)
+		if got < 0 || got >= len(app.tracks) {
+			t.Fatalf("shuffle index = %d, want valid track index", got)
+		}
+		if got == app.current {
+			t.Fatalf("shuffle index = current %d, want different track", got)
+		}
+	}
+}
+
+func TestTrackEndedNaturallyRequiresStoppedAtDurationAfterPlaying(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.wasPlaying = true
+	app.state = audio.StateStopped
+	app.pos = 1000
+	app.dur = 1000
+	if !app.trackEndedNaturally() {
+		t.Fatal("trackEndedNaturally = false, want true")
+	}
+}
+
+func TestTrackEndedNaturallyIgnoresStartupStoppedState(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.wasPlaying = false
+	app.state = audio.StateStopped
+	app.pos = 1000
+	app.dur = 1000
+	if app.trackEndedNaturally() {
+		t.Fatal("trackEndedNaturally = true, want false")
+	}
+}
+
+func TestTrackEndedNaturallyAllowsUnknownDuration(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.wasPlaying = true
+	app.state = audio.StateStopped
+	app.pos = 0
+	app.dur = 0
+	if !app.trackEndedNaturally() {
+		t.Fatal("trackEndedNaturally = false, want true for clean stop with unknown duration")
+	}
+}
+
+func TestTrackEndedNaturallyIgnoresEngineError(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.wasPlaying = true
+	app.state = audio.StateStopped
+	app.pos = 0
+	app.dur = 0
+	app.engineErr = fmt.Errorf("ffmpeg failed")
+	if app.trackEndedNaturally() {
+		t.Fatal("trackEndedNaturally = true, want false when engine has an error")
+	}
+}
+
+func TestPlayerBarShowsPlaybackMode(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		PlaybackRepeat:  "one",
+		PlaybackShuffle: true,
+	})
+	app.width = 100
+	app.volume = 80
+	app.speed = 1.0
+
+	plain := ansi.Strip(app.renderPlayerBar())
+	if !strings.Contains(plain, "repeat one") {
+		t.Fatalf("player bar missing repeat mode:\n%s", plain)
+	}
+	if !strings.Contains(plain, "shuffle on") {
+		t.Fatalf("player bar missing shuffle mode:\n%s", plain)
+	}
+}
+
+func TestToggleRepeatCyclesModes(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		PlaybackRepeat: "list",
+	})
+
+	app.toggleRepeat()
+	if app.options.PlaybackRepeat != "one" {
+		t.Fatalf("after first toggle repeat = %q, want one", app.options.PlaybackRepeat)
+	}
+	app.toggleRepeat()
+	if app.options.PlaybackRepeat != "none" {
+		t.Fatalf("after second toggle repeat = %q, want none", app.options.PlaybackRepeat)
+	}
+	app.toggleRepeat()
+	if app.options.PlaybackRepeat != "list" {
+		t.Fatalf("after third toggle repeat = %q, want list", app.options.PlaybackRepeat)
+	}
+}
+
+func TestToggleShuffleFlipsMode(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+
+	app.toggleShuffle()
+	if !app.options.PlaybackShuffle {
+		t.Fatal("after first toggle shuffle = false, want true")
+	}
+	app.toggleShuffle()
+	if app.options.PlaybackShuffle {
+		t.Fatal("after second toggle shuffle = true, want false")
+	}
+}
+
+func TestPlaybackModeKeysToggleModes(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		PlaybackRepeat: "list",
+	})
+
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Text: "r"}))
+	if app.options.PlaybackRepeat != "one" {
+		t.Fatalf("repeat after r = %q, want one", app.options.PlaybackRepeat)
+	}
+
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Text: "s"}))
+	if !app.options.PlaybackShuffle {
+		t.Fatal("shuffle after s = false, want true")
 	}
 }
 

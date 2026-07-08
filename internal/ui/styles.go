@@ -105,46 +105,50 @@ func newProgressBar(t *theme.Theme) progress.Model {
 
 // keyMap defines the default keybindings (phase 11 adds TOML override).
 type keyMap struct {
-	PlayPause   key.Binding
-	Next        key.Binding
-	Prev        key.Binding
-	ToggleView  key.Binding
-	ToggleScale key.Binding
-	ToggleList  key.Binding
-	Back        key.Binding
-	SeekFwd     key.Binding
-	SeekBack    key.Binding
-	VolUp       key.Binding
-	VolDown     key.Binding
-	SpeedUp     key.Binding
-	SpeedDown   key.Binding
-	Quit        key.Binding
-	Enter       key.Binding
-	Up          key.Binding
-	Down        key.Binding
-	Filter      key.Binding
+	PlayPause     key.Binding
+	Next          key.Binding
+	Prev          key.Binding
+	ToggleRepeat  key.Binding
+	ToggleShuffle key.Binding
+	ToggleView    key.Binding
+	ToggleScale   key.Binding
+	ToggleList    key.Binding
+	Back          key.Binding
+	SeekFwd       key.Binding
+	SeekBack      key.Binding
+	VolUp         key.Binding
+	VolDown       key.Binding
+	SpeedUp       key.Binding
+	SpeedDown     key.Binding
+	Quit          key.Binding
+	Enter         key.Binding
+	Up            key.Binding
+	Down          key.Binding
+	Filter        key.Binding
 }
 
 // defaultKeyMap returns the built-in keybindings.
 func defaultKeyMap() keyMap {
 	return keyMap{
-		PlayPause:   key.NewBinding(key.WithKeys("space", "p"), key.WithHelp("␣/p", "play/pause")),
-		Next:        key.NewBinding(key.WithKeys("n", "l"), key.WithHelp("n", "next")),
-		Prev:        key.NewBinding(key.WithKeys("b", "h"), key.WithHelp("b", "prev")),
-		ToggleView:  key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cover/lyrics")),
-		ToggleScale: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "cover scale")),
-		ToggleList:  key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "tracks/albums")),
-		Back:        key.NewBinding(key.WithKeys("esc", "backspace"), key.WithHelp("esc", "back")),
-		SeekFwd:     key.NewBinding(key.WithKeys("right", "L"), key.WithHelp("→", "seek +5s")),
-		SeekBack:    key.NewBinding(key.WithKeys("left", "H"), key.WithHelp("←", "seek -5s")),
-		VolUp:       key.NewBinding(key.WithKeys("+", "="), key.WithHelp("+", "vol up")),
-		VolDown:     key.NewBinding(key.WithKeys("-", "_"), key.WithHelp("-", "vol down")),
-		SpeedUp:     key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "speed up")),
-		SpeedDown:   key.NewBinding(key.WithKeys("["), key.WithHelp("[", "speed down")),
-		Quit:        key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
-		Enter:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "play selected")),
-		Up:          key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
-		Down:        key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
-		Filter:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+		PlayPause:     key.NewBinding(key.WithKeys("space", "p"), key.WithHelp("␣/p", "play/pause")),
+		Next:          key.NewBinding(key.WithKeys("n", "l"), key.WithHelp("n", "next")),
+		Prev:          key.NewBinding(key.WithKeys("b", "h"), key.WithHelp("b", "prev")),
+		ToggleRepeat:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "repeat")),
+		ToggleShuffle: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "shuffle")),
+		ToggleView:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cover/lyrics")),
+		ToggleScale:   key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "cover scale")),
+		ToggleList:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "tracks/albums")),
+		Back:          key.NewBinding(key.WithKeys("esc", "backspace"), key.WithHelp("esc", "back")),
+		SeekFwd:       key.NewBinding(key.WithKeys("right", "L"), key.WithHelp("→", "seek +5s")),
+		SeekBack:      key.NewBinding(key.WithKeys("left", "H"), key.WithHelp("←", "seek -5s")),
+		VolUp:         key.NewBinding(key.WithKeys("+", "="), key.WithHelp("+", "vol up")),
+		VolDown:       key.NewBinding(key.WithKeys("-", "_"), key.WithHelp("-", "vol down")),
+		SpeedUp:       key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "speed up")),
+		SpeedDown:     key.NewBinding(key.WithKeys("["), key.WithHelp("[", "speed down")),
+		Quit:          key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Enter:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("⏎", "play selected")),
+		Up:            key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
+		Down:          key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
+		Filter:        key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 	}
 }

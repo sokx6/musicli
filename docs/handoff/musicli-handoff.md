@@ -204,6 +204,36 @@ ui → {audio, library, playlist, lyrics, cover, theme}  # 唯一依赖 bubblete
 3. **list 右侧空白根因**：`bubbles/list` 在 `list.New()` 时存了 delegate 的内部副本。`resizeComponents` 更新 `a.delegate.Styles`（app 副本），list 内部还是旧样式。修复：更新后调 `a.trackList.SetDelegate(a.delegate)`。但最终方案改为 list 宽度跟随内容（非填满 pane），从根本上消除空白。
 4. **紫色标题栏根因**：`list.DefaultStyles` 的 TitleBar 有默认紫色背景。修复：用 `lipgloss.NewStyle()` 全新创建。
 
+### 阶段 4: SPL 歌词解析 + 逐字高亮
+- `internal/lyrics/`：普通 LRC、Enhanced LRC 子集、SPL 解析，统一为 `Lyric`/`Line`/`Word`
+- 本地歌词加载：按音频文件路径查找同名 `.spl` 或 `.lrc`
+- UI：当前行居中、逐字高亮、CJK 宽字符宽度约束
+- 逐字高亮 CJK 偏移修复：歌词活跃行/词变化时强制全屏重绘，规避 Bubble Tea diff 对 SGR + 宽字符的错位
+
+### 阶段 5: 专辑封面
+- `internal/cover/`：封面提取、halfblock 渲染、kitty 图片协议渲染
+- 封面提取优先 tag artwork，无内嵌图时查同目录 `cover.*`/`folder.*`
+- 左栏支持 `v` 切换封面+歌词、只封面、只歌词
+- `c` 切换 `fit`/`stretch`，默认由 `[cover] scale` 配置
+- kitty 渲染使用覆盖层命令，避免歌词重绘导致图片闪烁；歌词-only 时清除图片
+
+### 阶段 6: 排序与专辑视图
+- `[library] sort_field`、`sort_order` 控制扫描后曲目排序
+- `[library] group_by_album` 控制默认进入全部曲目或专辑视图，当前默认 `false`
+- `tab` 切换全部曲目/专辑列表，`enter` 进入专辑曲目，`esc`/`backspace` 返回专辑列表
+- 专辑曲目选择映射回全局曲目索引，播放/下一首/上一首仍使用全局排序列表
+
+### 阶段 7: 播放模式
+- `[playback] repeat = "none" | "one" | "list"`，默认 `list`
+- `[playback] shuffle = false | true`
+- 歌曲自然结束后按播放模式自动续播：`one` 重播当前曲，`list` 下一首并在末尾回到第一首，`none` 在最后一首结束后停止
+- shuffle 开启时自动下一首和手动下一首会选择不同于当前曲的随机曲目（至少两首时）
+- 手动 `n`/`l` 下一首保留显式导航语义，`repeat = "none"` 时仍可从末尾回到开头
+- 手动 `b`/`h` 上一首保持列表顺序，不维护 shuffle 历史
+- `r` 切换 repeat：`list` → `one` → `none` → `list`
+- `s` 切换 shuffle：`off` ↔ `on`
+- 播放栏显示当前 repeat/shuffle 状态
+
 ## 7. 日志系统
 
 ### 格式
@@ -277,44 +307,6 @@ file = ""            # empty = ~/.local/state/musicli/musicli.log
 - 缓存（封面、歌词）：`~/.cache/musicli/`
 
 ## 9. 待完成阶段
-
-### 阶段 4: SPL 歌词解析 + 逐字高亮
-- 创建 `internal/lyrics/` 包
-- 归一化模型：
-  ```go
-  type Line struct {
-      StartMs     int
-      EndMs       int
-      Words       []Word
-      Translation string
-      Agent       string
-      IsBackground bool
-  }
-  type Word struct { Text string; StartMs int; EndMs int }
-  type Lyric struct { Lines []Line; Tags map[string]string }
-  ```
-- `Parser` 接口 + SPL 解析器（首要，~80 行，也解析普通 LRC + Enhanced LRC 子集）
-- SPL 解析策略：tokenize 每行为时间戳+文本交替序列
-- 本地歌词加载：按音频文件路径查找同名 `.lrc`/`.spl`
-- UI：歌词视图组件（逐字高亮，当前行居中，自动滚动）
-- 不创建 stub 文件（yrc.go/qrc.go 等），实现时才创建
-
-### 阶段 5: 专辑封面
-- 创建 `internal/cover/` 包
-- `Renderer` 接口 + 4 个实现：kitty/sixel/iterm/halfblock
-- 协议检测：环境变量（KITTY_WINDOW_ID/TERM/TERM_PROGRAM），无 TTY 查询
-- tmux 检测：TMUX 设置时警告或回退 halfblock
-- 提取：`Extract(path string)` — 优先 tag.Picture()，无则查同目录 cover.jpg/folder.png
-- 缩放：`disintegration/imaging` resize
-- kitty 协议：`\x1b_Ga=T,t=d,f=100,s=,v=,c=,r=,m=;<b64>\x1b\\` 分块
-- 渲染策略：View() 占位空格 + 帧后 ANSI 光标定位写转义
-
-### 阶段 6: 排序与专辑视图
-- 按名字/大小/年份正序倒序（复用 library/sort.go）
-- 专辑视图（复用 library/album.go）
-
-### 阶段 7: 播放模式
-- 随机/单曲循环/列表循环
 
 ### 阶段 8: 歌单
 - 创建 `internal/playlist/` 包（依赖 library）

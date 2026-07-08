@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"math/rand/v2"
 	"os"
 	"strings"
 	"time"
@@ -92,6 +93,8 @@ type Options struct {
 	LibrarySortField  string
 	LibrarySortOrder  string
 	GroupByAlbum      bool
+	PlaybackRepeat    string
+	PlaybackShuffle   bool
 }
 
 type leftContentMode int
@@ -157,13 +160,15 @@ type App struct {
 	lastKittyFingerprint string
 
 	// playback state mirror (polled from engine)
-	pos       int
-	dur       int
-	state     audio.State
-	lastState audio.State
-	volume    int
-	speed     float64
-	errMsg    string
+	pos        int
+	dur        int
+	state      audio.State
+	lastState  audio.State
+	volume     int
+	speed      float64
+	errMsg     string
+	engineErr  error
+	wasPlaying bool
 
 	// lastLyricRender tracks the previously active lyric line and word so we
 	// can force a full screen redraw when either changes, bypassing bubbletea's
@@ -205,7 +210,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 		"engine", eng != nil,
 		"scanner", sc != nil,
 		"theme_mode", t.Mode,
-		"keybindings", 14,
+		"keybindings", 16,
 	)
 
 	return &App{
@@ -360,6 +365,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		prevLyric := a.lastLyricRender
 		a.pollEngine()
+		if a.trackEndedNaturally() {
+			return a, tea.Batch(tickCmd(), a.autoAdvanceAfterEnd())
+		}
+		a.wasPlaying = a.state == audio.StatePlaying
 		newLyric := a.currentLyricRenderState()
 		a.lastLyricRender = newLyric
 		// When the active lyric cell range changes, force a full screen redraw
@@ -402,8 +411,9 @@ func (a *App) pollEngine() {
 	a.state = a.engine.State()
 	a.volume = a.engine.Volume()
 	a.speed = a.engine.Speed()
-	if err := a.engine.Err(); err != nil {
-		a.errMsg = err.Error()
+	a.engineErr = a.engine.Err()
+	if a.engineErr != nil {
+		a.errMsg = a.engineErr.Error()
 	}
 	if a.state != prevState {
 		fl.Debug("state changed", "from", prevState.String(), "to", a.state.String())
@@ -449,6 +459,16 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.Prev):
 		fl.Debug("key matched", "key", keyStr, "action", "prevTrack")
 		return a, a.prevTrack()
+
+	case key.Matches(msg, a.keys.ToggleRepeat):
+		fl.Debug("key matched", "key", keyStr, "action", "toggleRepeat")
+		a.toggleRepeat()
+		return a, nil
+
+	case key.Matches(msg, a.keys.ToggleShuffle):
+		fl.Debug("key matched", "key", keyStr, "action", "toggleShuffle")
+		a.toggleShuffle()
+		return a, nil
 
 	case key.Matches(msg, a.keys.ToggleView):
 		fl.Debug("key matched", "key", keyStr, "action", "toggleLeftContent")
@@ -668,6 +688,81 @@ func (a *App) selectCurrentInLibraryView() {
 
 // --- playback commands ---
 
+func (a *App) playTrackAt(idx int) tea.Cmd {
+	fl := a.log.WithFunc("playTrackAt")
+	if idx < 0 || idx >= len(a.tracks) {
+		fl.Debug("invalid index", "idx", idx, "tracks", len(a.tracks))
+		return nil
+	}
+	a.current = idx
+	a.selectCurrentInLibraryView()
+	t := a.tracks[idx]
+	fl.Debug("playing track", "idx", idx, "title", t.Title, "path", t.Path)
+	if err := a.engine.Play(t.Path); err != nil {
+		fl.Error("Play failed", "err", err)
+		return func() tea.Msg { return errMsg{err: err} }
+	}
+	a.loadCurrentLyrics()
+	a.loadCurrentCover()
+	return a.kittyCoverCmd()
+}
+
+func (a *App) playbackRepeat() string {
+	switch a.options.PlaybackRepeat {
+	case "none", "one", "list":
+		return a.options.PlaybackRepeat
+	default:
+		return "list"
+	}
+}
+
+func (a *App) nextTrackIndex(autoAdvance bool) int {
+	if len(a.tracks) == 0 {
+		return -1
+	}
+	if a.current < 0 || a.current >= len(a.tracks) {
+		return 0
+	}
+	if autoAdvance {
+		switch a.playbackRepeat() {
+		case "one":
+			return a.current
+		case "none":
+			if a.current >= len(a.tracks)-1 {
+				return -1
+			}
+		}
+	}
+	if a.options.PlaybackShuffle && len(a.tracks) > 1 {
+		next := rand.N(len(a.tracks) - 1)
+		if next >= a.current {
+			next++
+		}
+		return next
+	}
+	return (a.current + 1) % len(a.tracks)
+}
+
+func (a *App) trackEndedNaturally() bool {
+	return a.wasPlaying &&
+		a.state == audio.StateStopped &&
+		a.engineErr == nil &&
+		(a.dur == 0 || a.pos >= a.dur)
+}
+
+func (a *App) autoAdvanceAfterEnd() tea.Cmd {
+	fl := a.log.WithFunc("autoAdvanceAfterEnd")
+	nextIdx := a.nextTrackIndex(true)
+	if nextIdx < 0 {
+		fl.Debug("playback ended, no auto-advance", "current", a.current, "repeat", a.playbackRepeat())
+		a.wasPlaying = false
+		return nil
+	}
+	fl.Debug("playback ended, auto-advancing", "current", a.current, "next", nextIdx, "repeat", a.playbackRepeat(), "shuffle", a.options.PlaybackShuffle)
+	a.wasPlaying = false
+	return a.playTrackAt(nextIdx)
+}
+
 func (a *App) playSelected() tea.Cmd {
 	fl := a.log.WithFunc("playSelected")
 	if a.libraryView == libraryViewAlbums {
@@ -687,16 +782,7 @@ func (a *App) playSelected() tea.Cmd {
 		fl.Debug("skipped, same track playing", "idx", idx, "title", a.tracks[idx].Title)
 		return nil
 	}
-	a.current = idx
-	t := a.tracks[idx]
-	fl.Debug("playing track", "idx", idx, "title", t.Title, "path", t.Path)
-	if err := a.engine.Play(t.Path); err != nil {
-		fl.Error("Play failed", "err", err)
-		return func() tea.Msg { return errMsg{err: err} }
-	}
-	a.loadCurrentLyrics()
-	a.loadCurrentCover()
-	return a.kittyCoverCmd()
+	return a.playTrackAt(idx)
 }
 
 func (a *App) togglePlayPause() tea.Cmd {
@@ -721,17 +807,13 @@ func (a *App) nextTrack() tea.Cmd {
 		return nil
 	}
 	prevIdx := a.current
-	a.current = (a.current + 1) % len(a.tracks)
-	a.selectCurrentInLibraryView()
-	t := a.tracks[a.current]
-	fl.Debug("next track", "prevIdx", prevIdx, "newIdx", a.current, "title", t.Title)
-	if err := a.engine.Play(t.Path); err != nil {
-		fl.Error("Play failed", "err", err)
-		return func() tea.Msg { return errMsg{err: err} }
+	nextIdx := a.nextTrackIndex(false)
+	if nextIdx < 0 {
+		fl.Debug("no next track", "prevIdx", prevIdx)
+		return nil
 	}
-	a.loadCurrentLyrics()
-	a.loadCurrentCover()
-	return a.kittyCoverCmd()
+	fl.Debug("next track", "prevIdx", prevIdx, "newIdx", nextIdx)
+	return a.playTrackAt(nextIdx)
 }
 
 func (a *App) prevTrack() tea.Cmd {
@@ -745,16 +827,8 @@ func (a *App) prevTrack() tea.Cmd {
 	} else {
 		a.current = (a.current - 1 + len(a.tracks)) % len(a.tracks)
 	}
-	a.selectCurrentInLibraryView()
-	t := a.tracks[a.current]
-	fl.Debug("prev track", "prevIdx", prevIdx, "newIdx", a.current, "title", t.Title)
-	if err := a.engine.Play(t.Path); err != nil {
-		fl.Error("Play failed", "err", err)
-		return func() tea.Msg { return errMsg{err: err} }
-	}
-	a.loadCurrentLyrics()
-	a.loadCurrentCover()
-	return a.kittyCoverCmd()
+	fl.Debug("prev track", "prevIdx", prevIdx, "newIdx", a.current)
+	return a.playTrackAt(a.current)
 }
 
 func (a *App) toggleLeftContent() {
@@ -775,6 +849,21 @@ func (a *App) toggleCoverScale() {
 	default:
 		a.coverScale = coverScaleFit
 	}
+}
+
+func (a *App) toggleRepeat() {
+	switch a.playbackRepeat() {
+	case "list":
+		a.options.PlaybackRepeat = "one"
+	case "one":
+		a.options.PlaybackRepeat = "none"
+	default:
+		a.options.PlaybackRepeat = "list"
+	}
+}
+
+func (a *App) toggleShuffle() {
+	a.options.PlaybackShuffle = !a.options.PlaybackShuffle
 }
 
 func coverScaleFromString(s string) coverScaleMode {
@@ -1501,8 +1590,13 @@ func (a *App) renderPlayerBar() string {
 	timeStr := fmt.Sprintf("%s / %s", fmtDuration(time.Duration(a.pos)*time.Millisecond),
 		fmtDuration(time.Duration(a.dur)*time.Millisecond))
 
-	// volume + speed
-	info := fmt.Sprintf("vol %d%%  speed %.1fx", a.volume, a.speed)
+	// playback status
+	shuffle := "off"
+	if a.options.PlaybackShuffle {
+		shuffle = "on"
+	}
+	info := fmt.Sprintf("vol %d%%  speed %.1fx  repeat %s  shuffle %s",
+		a.volume, a.speed, a.playbackRepeat(), shuffle)
 
 	line1 := fmt.Sprintf("%s  %s  %s", icon, timeStr, info)
 	if a.errMsg != "" {
@@ -1521,7 +1615,7 @@ func (a *App) renderPlayerBar() string {
 }
 
 func (a *App) helpLine() string {
-	return "q quit  ⏎ play  ␣ pause  n/b next/prev  v view  c scale  ←→ seek  +- vol  [] speed  / filter"
+	return "q quit  ⏎ play  ␣ pause  n/b next/prev  r repeat  s shuffle  v view  c scale  ←→ seek  / filter"
 }
 
 // fmtDuration formats ms duration as M:SS or H:MM:SS.

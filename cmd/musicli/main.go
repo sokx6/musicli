@@ -112,6 +112,8 @@ func run() error {
 		LibrarySortField:  cfg.Library.SortField,
 		LibrarySortOrder:  cfg.Library.SortOrder,
 		GroupByAlbum:      cfg.Library.GroupByAlbum,
+		PlaybackRepeat:    cfg.Playback.Repeat,
+		PlaybackShuffle:   cfg.Playback.Shuffle,
 	})
 	fl.Info("ui app created")
 
