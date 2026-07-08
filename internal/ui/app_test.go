@@ -461,7 +461,7 @@ func TestRenderProgressBarShowsCurrentPosition(t *testing.T) {
 }
 
 func TestPlayerBarKeepsThreeSingleLineRowsAtNarrowWidths(t *testing.T) {
-	for _, width := range []int{120, 60, 35, 20} {
+	for _, width := range []int{120, 60, 35, 20, 10, 5, 3, 1} {
 		t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
 			app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
 				PlaybackRepeat:  "list",
@@ -480,6 +480,32 @@ func TestPlayerBarKeepsThreeSingleLineRowsAtNarrowWidths(t *testing.T) {
 			for i, line := range lines[1:] {
 				if got := ansi.StringWidth(line); got > width {
 					t.Fatalf("content line %d width = %d, want <= %d: %q", i, got, width, line)
+				}
+			}
+		})
+	}
+}
+
+func TestViewKeepsPlayerBarRowsAtTinyWidths(t *testing.T) {
+	for _, width := range []int{10, 5, 3, 1} {
+		t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
+			app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+			app.width = width
+			app.height = 8
+			app.pos = 1000
+			app.dur = 2000
+
+			lines := strings.Split(ansi.Strip(app.View().Content), "\n")
+			if len(lines) < 4 {
+				t.Fatalf("view rendered %d lines, want enough for player bar:\n%s", len(lines), strings.Join(lines, "\n"))
+			}
+			playerLines := lines[len(lines)-4:]
+			if len(playerLines) != 4 {
+				t.Fatalf("player bar slice has %d lines, want 4", len(playerLines))
+			}
+			for i, line := range playerLines[1:] {
+				if got := ansi.StringWidth(line); got > width {
+					t.Fatalf("player content line %d width = %d, want <= %d: %q", i, got, width, line)
 				}
 			}
 		})

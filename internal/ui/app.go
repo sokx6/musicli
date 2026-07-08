@@ -1268,6 +1268,7 @@ func (a *App) View() tea.View {
 	bar := a.renderPlayerBar()
 
 	full := lipgloss.JoinVertical(lipgloss.Left, topBar, body, bar)
+	full = fitBlock(full, a.width, a.height)
 
 	// Fill the entire terminal frame so stale lines are cleared on resize.
 	frame := a.styles.doc.Width(a.width).Height(a.height).Render(full)
@@ -1709,7 +1710,11 @@ func fitBlock(s string, width, height int) string {
 
 func (a *App) renderPlayerBar() string {
 	w := a.width
-	contentW := w - a.styles.player.GetHorizontalFrameSize()
+	style := a.styles.player
+	if w <= a.styles.player.GetHorizontalFrameSize() {
+		style = style.Padding(0, 0)
+	}
+	contentW := w - style.GetHorizontalFrameSize()
 	if contentW < 1 {
 		contentW = 1
 	}
@@ -1720,7 +1725,7 @@ func (a *App) renderPlayerBar() string {
 		a.renderPlayerHelpLine(contentW),
 	}, "\n")
 
-	return a.styles.player.
+	return style.
 		Width(w).
 		Render(content)
 }
