@@ -1545,14 +1545,15 @@ func (a *App) resizeComponents() {
 		"term_w", a.width, "term_h", a.height,
 		"leftW", leftW, "listW", listW, "bodyH", bodyH)
 
-	// Force item styles to fill the full list width so there's no empty
-	// space on the right of each row.
+	// Keep title styles inline-only. Filter highlighting renders titles in
+	// multiple styled chunks, and fixed-width title chunks insert padding
+	// between the chunks.
 	s := newListStyles(a.theme)
-	s.NormalTitle = s.NormalTitle.Width(listW)
+	s.NormalTitle = s.NormalTitle.Inline(true)
 	s.NormalDesc = s.NormalDesc.Width(listW)
-	s.SelectedTitle = s.SelectedTitle.Width(listW)
+	s.SelectedTitle = s.SelectedTitle.Inline(true)
 	s.SelectedDesc = s.SelectedDesc.Width(listW)
-	s.DimmedTitle = s.DimmedTitle.Width(listW)
+	s.DimmedTitle = s.DimmedTitle.Inline(true)
 	s.DimmedDesc = s.DimmedDesc.Width(listW)
 	a.delegate.Styles = s
 	// The list stores its own copy of the delegate; updating a.delegate alone
@@ -1587,10 +1588,7 @@ func (a *App) View() tea.View {
 		rightPaneW = 1
 	}
 
-	rightPane := a.styles.rightPane.
-		Width(rightPaneW).
-		Height(bodyH).
-		Render(a.trackList.View())
+	rightPane := fitBlock(a.trackList.View(), rightPaneW, bodyH)
 
 	var body string
 	if leftW > 0 {

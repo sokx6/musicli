@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -135,6 +136,51 @@ func TestWidthBelowConfiguredTrackListMaxWidthUsesSingleColumn(t *testing.T) {
 	}
 	if got := app.trackList.Width(); got != 49 {
 		t.Fatalf("track list width = %d, want full terminal width 49", got)
+	}
+}
+
+func TestTrackListFilterItemsStaySingleLine(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		TrackListMaxWidth: 24,
+	})
+
+	m, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	app = m.(*App)
+	m, _ = app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Title: "Alpha title that is wider than the list"},
+		{Title: "Beta"},
+		{Title: "Gamma"},
+	}})
+	app = m.(*App)
+	app.trackList.SetFilterState(list.Filtering)
+	app.trackList.SetFilterText("title")
+
+	lines := strings.Split(ansi.Strip(app.trackList.View()), "\n")
+	filteredTitleLines := 0
+	for _, line := range lines {
+		if strings.Contains(line, "Alpha") || strings.Contains(line, "title") {
+			filteredTitleLines++
+		}
+	}
+	if filteredTitleLines != 1 {
+		t.Fatalf("filtered title rendered on %d lines, want 1:\n%s", filteredTitleLines, strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(strings.Join(lines, "\n"), "Alpha title that is wi") {
+		t.Fatalf("filtered title was truncated too early:\n%s", strings.Join(lines, "\n"))
+	}
+
+	viewLines := strings.Split(ansi.Strip(app.View().Content), "\n")
+	viewTitleLines := 0
+	for _, line := range viewLines {
+		if strings.Contains(line, "Alpha") || strings.Contains(line, "title") {
+			viewTitleLines++
+		}
+	}
+	if viewTitleLines != 1 {
+		t.Fatalf("filtered title rendered on %d full-view lines, want 1:\n%s", viewTitleLines, strings.Join(viewLines, "\n"))
+	}
+	if !strings.Contains(strings.Join(viewLines, "\n"), "Alpha title that is wi") {
+		t.Fatalf("filtered title was truncated too early in full view:\n%s", strings.Join(viewLines, "\n"))
 	}
 }
 
