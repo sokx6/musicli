@@ -360,6 +360,141 @@ func TestPrevTrackIndexStaysInAlbumTrackView(t *testing.T) {
 	}
 }
 
+func TestQueueCapturesAlbumPlaybackScope(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		GroupByAlbum:   true,
+		PlaybackRepeat: "list",
+	})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "a1.mp3", Title: "Alpha 1", Album: "Alpha"},
+		{Path: "a2.mp3", Title: "Alpha 2", Album: "Alpha"},
+		{Path: "b1.mp3", Title: "Beta 1", Album: "Beta"},
+	}})
+	app = m.(*App)
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	app.trackList.Select(1)
+	app.current = 1
+
+	app.setQueueForCurrentSelection()
+
+	if got := app.queueSourceLabel(); got != "album" {
+		t.Fatalf("queue source = %q, want album", got)
+	}
+	if got := len(app.queue); got != 2 {
+		t.Fatalf("queue len = %d, want 2", got)
+	}
+	if app.queue[0].Title != "Alpha 1" || app.queue[1].Title != "Alpha 2" {
+		t.Fatalf("queue tracks = %q, %q", app.queue[0].Title, app.queue[1].Title)
+	}
+	if got := app.queuePosition(); got != 2 {
+		t.Fatalf("queue position = %d, want 2", got)
+	}
+}
+
+func TestSetQueueForCurrentSelectionCreatesAlbumQueue(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		GroupByAlbum: true,
+	})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "a1.mp3", Title: "Alpha 1", Album: "Alpha"},
+		{Path: "a2.mp3", Title: "Alpha 2", Album: "Alpha"},
+		{Path: "b1.mp3", Title: "Beta 1", Album: "Beta"},
+	}})
+	app = m.(*App)
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	app.trackList.Select(1)
+
+	app.setQueueForCurrentSelection()
+
+	if got := app.queueSourceLabel(); got != "album" {
+		t.Fatalf("queue source = %q, want album", got)
+	}
+	if got := len(app.queue); got != 2 {
+		t.Fatalf("queue len = %d, want 2", got)
+	}
+}
+
+func TestSetQueueForCurrentSelectionCreatesAllQueue(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.tracks = []*library.Track{
+		{Title: "One"},
+		{Title: "Two"},
+	}
+	app.current = 0
+	app.setLibraryView(libraryViewTracks)
+
+	app.setQueueForCurrentSelection()
+
+	if got := app.queueSourceLabel(); got != "all" {
+		t.Fatalf("queue source = %q, want all", got)
+	}
+	if got := len(app.queue); got != 2 {
+		t.Fatalf("queue len = %d, want 2", got)
+	}
+}
+
+func TestSetQueueForCurrentSelectionCreatesFilteredQueue(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Title: "Alpha"},
+		{Title: "Beta"},
+		{Title: "Alpine"},
+	}})
+	app = m.(*App)
+	app.trackList.SetFilterText("Al")
+
+	app.setQueueForCurrentSelection()
+
+	if got := app.queueSourceLabel(); got != "filtered" {
+		t.Fatalf("queue source = %q, want filtered", got)
+	}
+	if got := len(app.queue); got != 2 {
+		t.Fatalf("queue len = %d, want 2", got)
+	}
+	if app.queue[0].Title != "Alpha" || app.queue[1].Title != "Alpine" {
+		t.Fatalf("queue tracks = %q, %q", app.queue[0].Title, app.queue[1].Title)
+	}
+}
+
+func TestQueueDoesNotChangeWhenLibraryViewChanges(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		GroupByAlbum:   true,
+		PlaybackRepeat: "list",
+	})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "a1.mp3", Title: "Alpha 1", Album: "Alpha"},
+		{Path: "a2.mp3", Title: "Alpha 2", Album: "Alpha"},
+		{Path: "b1.mp3", Title: "Beta 1", Album: "Beta"},
+	}})
+	app = m.(*App)
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	app.current = 1
+	app.setQueueForCurrentSelection()
+
+	app.setLibraryView(libraryViewTracks)
+
+	if got := app.nextTrackIndex(false); got != 0 {
+		t.Fatalf("next after view change = %d, want album wrap to 0", got)
+	}
+}
+
+func TestPlayerBarShowsQueueContext(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.width = 120
+	app.tracks = []*library.Track{
+		{Title: "One"},
+		{Title: "Two"},
+		{Title: "Three"},
+	}
+	app.current = 1
+	app.setQueue(queueSourceAll, app.tracks)
+
+	plain := ansi.Strip(app.renderPlayerBar())
+	if !strings.Contains(plain, "queue all 2/3") {
+		t.Fatalf("player bar missing queue context:\n%s", plain)
+	}
+}
+
 func TestTrackEndedNaturallyRequiresStoppedAtDurationAfterPlaying(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	app.wasPlaying = true

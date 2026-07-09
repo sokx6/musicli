@@ -134,6 +134,15 @@ const (
 	libraryViewAlbumTracks
 )
 
+type queueSource int
+
+const (
+	queueSourceNone queueSource = iota
+	queueSourceAll
+	queueSourceAlbum
+	queueSourceFiltered
+)
+
 // App is the top-level bubbletea model.
 type App struct {
 	log     *log.Logger
@@ -153,6 +162,8 @@ type App struct {
 
 	tracks     []*library.Track
 	albums     []*library.Album
+	queue      []*library.Track
+	queueSrc   queueSource
 	current    int // index into tracks, -1 if none
 	loading    bool
 	lyric      *lyrics.Lyric
@@ -880,7 +891,70 @@ func (a *App) trackIndex(track *library.Track) int {
 	return -1
 }
 
+func (a *App) setQueue(source queueSource, tracks []*library.Track) {
+	a.queueSrc = source
+	a.queue = append(a.queue[:0], tracks...)
+}
+
+func (a *App) setQueueForCurrentSelection() {
+	if a.libraryView == libraryViewTracks && a.trackList.IsFiltered() {
+		filtered := a.filteredTrackQueue()
+		if len(filtered) > 0 {
+			a.setQueue(queueSourceFiltered, filtered)
+			return
+		}
+	}
+	switch a.libraryView {
+	case libraryViewAlbumTracks:
+		if a.currentAlbum >= 0 && a.currentAlbum < len(a.albums) {
+			a.setQueue(queueSourceAlbum, a.albums[a.currentAlbum].Tracks)
+			return
+		}
+	}
+	a.setQueue(queueSourceAll, a.tracks)
+}
+
+func (a *App) filteredTrackQueue() []*library.Track {
+	items := a.trackList.VisibleItems()
+	out := make([]*library.Track, 0, len(items))
+	for _, item := range items {
+		if track, ok := item.(trackItem); ok && track.track != nil {
+			out = append(out, track.track)
+		}
+	}
+	return out
+}
+
+func (a *App) queueSourceLabel() string {
+	switch a.queueSrc {
+	case queueSourceAlbum:
+		return "album"
+	case queueSourceFiltered:
+		return "filtered"
+	case queueSourceAll:
+		return "all"
+	default:
+		return "none"
+	}
+}
+
+func (a *App) queuePosition() int {
+	if len(a.queue) == 0 || a.current < 0 || a.current >= len(a.tracks) {
+		return 0
+	}
+	currentTrack := a.tracks[a.current]
+	for i, track := range a.queue {
+		if track == currentTrack {
+			return i + 1
+		}
+	}
+	return 0
+}
+
 func (a *App) playbackScope() []*library.Track {
+	if len(a.queue) > 0 {
+		return a.queue
+	}
 	if a.libraryView == libraryViewAlbumTracks &&
 		a.currentAlbum >= 0 &&
 		a.currentAlbum < len(a.albums) &&
@@ -993,6 +1067,7 @@ func (a *App) playSelected() tea.Cmd {
 		fl.Debug("skipped, same track playing", "idx", idx, "title", a.tracks[idx].Title)
 		return nil
 	}
+	a.setQueueForCurrentSelection()
 	return a.playTrackAt(idx)
 }
 
@@ -2045,18 +2120,34 @@ func (a *App) renderPlayerStatusLine(width int) string {
 	if a.errMsg != "" {
 		return fitLine(fmt.Sprintf("%s  %s  ! %s", a.playerStateIcon(), compactTimeStr, a.errMsg), width)
 	}
+	queueLong := a.queueStatusText(false)
+	queueShort := a.queueStatusText(true)
 
 	candidates := []string{
-		fmt.Sprintf("%s  %s  vol %d%%  speed %.1fx  repeat %s  shuffle %s",
-			a.playerStateIcon(), timeStr, a.volume, a.speed, a.playbackRepeat(), shuffle),
+		fmt.Sprintf("%s  %s  vol %d%%  speed %.1fx  repeat %s  shuffle %s  %s",
+			a.playerStateIcon(), timeStr, a.volume, a.speed, a.playbackRepeat(), shuffle, queueLong),
 		fmt.Sprintf("%s  %s  v%d  x%.1f  %s  shuf %s",
 			a.playerStateIcon(), compactTimeStr, a.volume, a.speed, a.playbackRepeat(), shuffle),
+		fmt.Sprintf("%s  %s  v%d  %s  %s",
+			a.playerStateIcon(), compactTimeStr, a.volume, a.playbackRepeat(), queueShort),
 		fmt.Sprintf("%s  %s  v%d  %s",
 			a.playerStateIcon(), compactTimeStr, a.volume, a.playbackRepeat()),
 		fmt.Sprintf("%s  %s", a.playerStateIcon(), compactTimeStr),
 		a.playerStateIcon(),
 	}
 	return bestFitLine(candidates, width)
+}
+
+func (a *App) queueStatusText(short bool) string {
+	pos := a.queuePosition()
+	total := len(a.queue)
+	if pos <= 0 || total <= 0 {
+		return "queue none"
+	}
+	if short {
+		return fmt.Sprintf("q %s %d/%d", a.queueSourceLabel(), pos, total)
+	}
+	return fmt.Sprintf("queue %s %d/%d", a.queueSourceLabel(), pos, total)
 }
 
 func (a *App) renderPlayerHelpLine(width int) string {
