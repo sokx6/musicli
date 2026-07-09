@@ -108,14 +108,10 @@ func run() error {
 	}
 	fl.Info("theme loaded", "mode", modeStr, "name", cfg.Theme.Name)
 
-	var mprisSvc *mpris.Service
+	var mprisSvc *mpris.LazyService
 	if cfg.DBus.MPRIS || cfg.DBus.Lyrics {
-		mprisSvc, err = mpris.Start(ctx, logger, cfg.DBus.MPRIS, cfg.DBus.Lyrics)
-		if err != nil {
-			fl.Warn("mpris service unavailable", "err", err)
-		} else {
-			defer mprisSvc.Close()
-		}
+		mprisSvc = mpris.NewLazyService(ctx, logger, cfg.DBus.MPRIS, cfg.DBus.Lyrics, nil)
+		defer mprisSvc.Close()
 	}
 
 	app := ui.NewWithOptions(eng, sc, t, logger, ui.Options{
