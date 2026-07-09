@@ -18,6 +18,7 @@ import (
 	"github.com/locxl/musicli/internal/library"
 	"github.com/locxl/musicli/internal/log"
 	"github.com/locxl/musicli/internal/lyrics"
+	"github.com/locxl/musicli/internal/mpris"
 	"github.com/locxl/musicli/internal/theme"
 )
 
@@ -1402,6 +1403,101 @@ func TestFastLyricKeepsFinalWordVisibleAtLineBoundary(t *testing.T) {
 	muted := ansi.NewStyle().ForegroundColor(app.theme.Muted)
 	if rendered == padCellText(muted.Styled(truncateCellText(app.lyric.Lines[state.line].Text, 20)), 20) {
 		t.Fatalf("final word should be highlighted at boundary: %q", rendered)
+	}
+}
+
+func TestMPRISSnapshotExportsLyricsState(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		PlaybackRepeat:  "one",
+		PlaybackShuffle: true,
+	})
+	app.tracks = []*library.Track{{
+		Title:    "Song",
+		Artist:   "Artist",
+		Album:    "Album",
+		Duration: 3000,
+	}}
+	app.current = 0
+	app.pos = 600
+	app.dur = 3000
+	app.state = audio.StatePlaying
+	app.volume = 75
+	app.speed = 1.25
+	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{
+		{StartMs: 0, EndMs: 1000, Text: "hello world", Words: []lyrics.Word{
+			{Text: "hello", StartMs: 0, EndMs: 500},
+			{Text: "world", StartMs: 500, EndMs: 1000},
+		}},
+	}}
+
+	snapshot := app.MPRISSnapshot()
+
+	if snapshot.Track != app.tracks[0] {
+		t.Fatal("snapshot track does not match current track")
+	}
+	if snapshot.PlaybackStatus != "Playing" {
+		t.Fatalf("playback status = %q, want Playing", snapshot.PlaybackStatus)
+	}
+	if snapshot.LoopStatus != "Track" {
+		t.Fatalf("loop status = %q, want Track", snapshot.LoopStatus)
+	}
+	if !snapshot.Shuffle {
+		t.Fatal("shuffle = false, want true")
+	}
+	if snapshot.PositionMS != 600 || snapshot.DurationMS != 3000 || snapshot.Volume != 75 || snapshot.Speed != 1.25 {
+		t.Fatalf("playback fields = pos %d dur %d volume %d speed %.2f", snapshot.PositionMS, snapshot.DurationMS, snapshot.Volume, snapshot.Speed)
+	}
+	if snapshot.CurrentLine != "hello world" || snapshot.CurrentLineIdx != 0 || snapshot.CurrentWordIdx != 1 {
+		t.Fatalf("lyric state = line %q idx %d word %d", snapshot.CurrentLine, snapshot.CurrentLineIdx, snapshot.CurrentWordIdx)
+	}
+	if snapshot.LyricText != "[00:00.00]hello world" || snapshot.LyricFormat != "lrc" || !snapshot.Synced {
+		t.Fatalf("lyric export = text %q format %q synced %v", snapshot.LyricText, snapshot.LyricFormat, snapshot.Synced)
+	}
+}
+
+func TestMPRISSnapshotExportsPlainLyricsWhenUnsynced(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{
+		{Text: "plain one"},
+		{Text: "plain two"},
+	}}
+
+	snapshot := app.MPRISSnapshot()
+
+	if snapshot.LyricText != "plain one\nplain two" {
+		t.Fatalf("plain lyric text = %q", snapshot.LyricText)
+	}
+	if snapshot.LyricFormat != "plain" || snapshot.Synced {
+		t.Fatalf("lyric format/synced = %q/%v, want plain/false", snapshot.LyricFormat, snapshot.Synced)
+	}
+}
+
+func TestDBusSetPositionIgnoresStaleTrackID(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.tracks = []*library.Track{{Title: "one"}, {Title: "two"}}
+	app.current = 1
+
+	cmd := app.handleDBusCommand(mpris.Command{
+		Kind:       mpris.CmdSetPosition,
+		TrackID:    "/org/mpris/MediaPlayer2/track/0",
+		PositionUS: 1000000,
+	})
+
+	if cmd != nil {
+		t.Fatal("stale SetPosition track id should not produce a seek command")
+	}
+}
+
+func TestDBusSetPositionMatchesCurrentTrackID(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.tracks = []*library.Track{{Title: "one"}, {Title: "two"}}
+	app.current = 1
+
+	if !app.dbusSetPositionTrackMatches("/org/mpris/MediaPlayer2/track/1") {
+		t.Fatal("current SetPosition track id should match")
+	}
+	if !app.dbusSetPositionTrackMatches("") {
+		t.Fatal("empty SetPosition track id should be accepted")
 	}
 }
 

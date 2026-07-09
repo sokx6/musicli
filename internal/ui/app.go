@@ -23,6 +23,7 @@ import (
 	"github.com/locxl/musicli/internal/library"
 	"github.com/locxl/musicli/internal/log"
 	"github.com/locxl/musicli/internal/lyrics"
+	"github.com/locxl/musicli/internal/mpris"
 	"github.com/locxl/musicli/internal/theme"
 )
 
@@ -96,6 +97,7 @@ type Options struct {
 	PlaybackRepeat    string
 	PlaybackShuffle   bool
 	LyricsAlign       string
+	MPRISSink         func(mpris.Snapshot)
 }
 
 type leftContentMode int
@@ -270,6 +272,10 @@ type ScanStartMsg struct{ Path string }
 type tickMsg struct{}
 type errMsg struct{ err error }
 
+// DBusCommandMsg carries a player command received from D-Bus into the UI
+// event loop. The UI remains the single owner of playback/list state.
+type DBusCommandMsg struct{ Command mpris.Command }
+
 // scanCmd scans the given path async.
 func scanCmd(sc *library.Scanner, path string) tea.Cmd {
 	return func() tea.Msg {
@@ -374,9 +380,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.log.Error("scan failed", "err", msg.Err)
 		return a, nil
 
+	case DBusCommandMsg:
+		return a, a.handleDBusCommand(msg.Command)
+
 	case tickMsg:
 		prevLyric := a.lastLyricRender
 		a.pollEngine()
+		a.publishMPRISSnapshot()
 		if a.trackEndedNaturally() {
 			return a, tea.Batch(tickCmd(), a.autoAdvanceAfterEnd())
 		}
@@ -436,6 +446,129 @@ func (a *App) pollEngine() {
 	} else {
 		_ = a.progress.SetPercent(0)
 	}
+}
+
+func (a *App) MPRISSnapshot() mpris.Snapshot {
+	var track *library.Track
+	if a.current >= 0 && a.current < len(a.tracks) {
+		track = a.tracks[a.current]
+	}
+
+	lineIdx := -1
+	wordIdx := -1
+	currentLine := ""
+	lyricText := ""
+	lyricFormat := ""
+	synced := false
+	if a.lyric != nil && len(a.lyric.Lines) > 0 {
+		state := a.currentLyricRenderState()
+		lineIdx = state.line
+		wordIdx = state.word
+		if lineIdx >= 0 && lineIdx < len(a.lyric.Lines) {
+			currentLine = a.lyric.Lines[lineIdx].Text
+		}
+		if lyricHasTiming(a.lyric) {
+			lyricText = lyricLRCText(a.lyric)
+			lyricFormat = "lrc"
+			synced = true
+		} else {
+			lyricText = lyricPlainText(a.lyric)
+			lyricFormat = "plain"
+		}
+	}
+
+	return mpris.Snapshot{
+		Track:          track,
+		CurrentIndex:   a.current,
+		PlaybackStatus: mprisPlaybackStatus(a.state),
+		LoopStatus:     mprisLoopStatus(a.playbackRepeat()),
+		Shuffle:        a.options.PlaybackShuffle,
+		PositionMS:     a.pos,
+		DurationMS:     a.dur,
+		Volume:         a.volume,
+		Speed:          a.speed,
+		LyricText:      lyricText,
+		LyricFormat:    lyricFormat,
+		CurrentLine:    currentLine,
+		CurrentLineIdx: lineIdx,
+		CurrentWordIdx: wordIdx,
+		Synced:         synced,
+	}
+}
+
+func (a *App) publishMPRISSnapshot() {
+	if a.options.MPRISSink != nil {
+		a.options.MPRISSink(a.MPRISSnapshot())
+	}
+}
+
+func mprisPlaybackStatus(state audio.State) mpris.PlaybackStatus {
+	switch state {
+	case audio.StatePlaying:
+		return mpris.StatusPlaying
+	case audio.StatePaused:
+		return mpris.StatusPaused
+	default:
+		return mpris.StatusStopped
+	}
+}
+
+func mprisLoopStatus(repeat string) mpris.LoopStatus {
+	switch repeat {
+	case "one":
+		return mpris.LoopTrack
+	case "list":
+		return mpris.LoopPlaylist
+	default:
+		return mpris.LoopNone
+	}
+}
+
+func lyricLRCText(ly *lyrics.Lyric) string {
+	if ly == nil || len(ly.Lines) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(ly.Lines))
+	for _, line := range ly.Lines {
+		text := line.Text
+		if text == "" && len(line.Words) > 0 {
+			text = wordsText(line.Words)
+		}
+		if text == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("[%02d:%05.2f]%s", line.StartMs/60000, float64(line.StartMs%60000)/1000.0, text))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func lyricPlainText(ly *lyrics.Lyric) string {
+	if ly == nil || len(ly.Lines) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(ly.Lines))
+	for _, line := range ly.Lines {
+		text := line.Text
+		if text == "" && len(line.Words) > 0 {
+			text = wordsText(line.Words)
+		}
+		if text != "" {
+			lines = append(lines, text)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func lyricHasTiming(ly *lyrics.Lyric) bool {
+	if ly == nil {
+		return false
+	}
+	for _, line := range ly.Lines {
+		if line.StartMs > 0 || line.EndMs > 0 || len(line.Words) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // handleKey processes key messages.
@@ -872,6 +1005,53 @@ func (a *App) togglePlayPause() tea.Cmd {
 		return a.playSelected()
 	}
 	return nil
+}
+
+func (a *App) handleDBusCommand(command mpris.Command) tea.Cmd {
+	switch command.Kind {
+	case mpris.CmdNext:
+		return a.nextTrack()
+	case mpris.CmdPrevious:
+		return a.prevTrack()
+	case mpris.CmdPlay:
+		switch a.state {
+		case audio.StatePaused:
+			if err := a.engine.Resume(); err != nil {
+				return func() tea.Msg { return errMsg{err: err} }
+			}
+			return nil
+		case audio.StateStopped:
+			return a.playSelected()
+		default:
+			return nil
+		}
+	case mpris.CmdPause:
+		if a.state == audio.StatePlaying {
+			if err := a.engine.Pause(); err != nil {
+				return func() tea.Msg { return errMsg{err: err} }
+			}
+		}
+		return nil
+	case mpris.CmdPlayPause:
+		return a.togglePlayPause()
+	case mpris.CmdStop:
+		a.engine.Stop()
+		a.wasPlaying = false
+		return nil
+	case mpris.CmdSeek:
+		return a.seekRelative(int(command.OffsetUS / 1000))
+	case mpris.CmdSetPosition:
+		if !a.dbusSetPositionTrackMatches(command.TrackID) {
+			return nil
+		}
+		return a.seekTo(int(command.PositionUS / 1000))
+	default:
+		return nil
+	}
+}
+
+func (a *App) dbusSetPositionTrackMatches(trackID string) bool {
+	return trackID == "" || trackID == string(mpris.TrackID(a.MPRISSnapshot()))
 }
 
 func (a *App) nextTrack() tea.Cmd {

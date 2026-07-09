@@ -32,6 +32,12 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	if c.Lyrics.Align != "left" {
 		t.Errorf("default lyrics align = %q, want left", c.Lyrics.Align)
 	}
+	if !c.DBus.MPRIS {
+		t.Errorf("default dbus.mpris = false, want true")
+	}
+	if !c.DBus.Lyrics {
+		t.Errorf("default dbus.lyrics = false, want true")
+	}
 }
 
 func TestLoadCreatesDefaultOnFirstRun(t *testing.T) {

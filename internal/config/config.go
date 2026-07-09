@@ -20,6 +20,7 @@ type Config struct {
 	Library     Library     `toml:"library"`
 	Lyrics      Lyrics      `toml:"lyrics"`
 	Cover       Cover       `toml:"cover"`
+	DBus        DBus        `toml:"dbus"`
 	Theme       Theme       `toml:"theme"`
 	UI          UI          `toml:"ui"`
 	Keybindings Keybindings `toml:"keybindings"`
@@ -56,6 +57,11 @@ type Cover struct {
 	Show     bool   `toml:"show"`
 	Protocol string `toml:"protocol"`
 	Scale    string `toml:"scale"`
+}
+
+type DBus struct {
+	MPRIS  bool `toml:"mpris"`
+	Lyrics bool `toml:"lyrics"`
 }
 
 type Theme struct {

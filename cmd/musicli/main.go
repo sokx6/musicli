@@ -18,6 +18,7 @@ import (
 	"github.com/locxl/musicli/internal/config"
 	"github.com/locxl/musicli/internal/library"
 	"github.com/locxl/musicli/internal/log"
+	"github.com/locxl/musicli/internal/mpris"
 	"github.com/locxl/musicli/internal/theme"
 	"github.com/locxl/musicli/internal/ui"
 )
@@ -64,6 +65,8 @@ func run() error {
 		"cover.show", cfg.Cover.Show,
 		"cover.protocol", cfg.Cover.Protocol,
 		"cover.scale", cfg.Cover.Scale,
+		"dbus.mpris", cfg.DBus.MPRIS,
+		"dbus.lyrics", cfg.DBus.Lyrics,
 		"theme.mode", cfg.Theme.Mode,
 		"theme.name", cfg.Theme.Name,
 		"ui.track_list_max_width", cfg.UI.TrackListMaxWidth,
@@ -105,6 +108,16 @@ func run() error {
 	}
 	fl.Info("theme loaded", "mode", modeStr, "name", cfg.Theme.Name)
 
+	var mprisSvc *mpris.Service
+	if cfg.DBus.MPRIS || cfg.DBus.Lyrics {
+		mprisSvc, err = mpris.Start(ctx, logger, cfg.DBus.MPRIS, cfg.DBus.Lyrics)
+		if err != nil {
+			fl.Warn("mpris service unavailable", "err", err)
+		} else {
+			defer mprisSvc.Close()
+		}
+	}
+
 	app := ui.NewWithOptions(eng, sc, t, logger, ui.Options{
 		TrackListMaxWidth: cfg.UI.TrackListMaxWidth,
 		DisableCover:      !cfg.Cover.Show,
@@ -116,6 +129,11 @@ func run() error {
 		PlaybackRepeat:    cfg.Playback.Repeat,
 		PlaybackShuffle:   cfg.Playback.Shuffle,
 		LyricsAlign:       cfg.Lyrics.Align,
+		MPRISSink: func(snapshot mpris.Snapshot) {
+			if mprisSvc != nil {
+				mprisSvc.Update(snapshot)
+			}
+		},
 	})
 	fl.Info("ui app created")
 
@@ -123,6 +141,14 @@ func run() error {
 	// set on the View returned by the model's View().
 	p := tea.NewProgram(app, tea.WithFPS(30))
 	fl.Info("bubbletea program created", "fps", 30)
+
+	if mprisSvc != nil {
+		go func() {
+			for command := range mprisSvc.Commands() {
+				p.Send(ui.DBusCommandMsg{Command: command})
+			}
+		}()
+	}
 
 	// Kick off the library scan in a goroutine; deliver results via Send.
 	go func() {

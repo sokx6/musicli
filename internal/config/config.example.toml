@@ -26,6 +26,10 @@ show = true
 protocol = "auto"    # auto | kitty | sixel | iterm | halfblock
 scale = "fit"        # fit | stretch
 
+[dbus]
+mpris = true          # expose org.mpris.MediaPlayer2.musicli
+lyrics = true         # expose io.github.locxl.musicli.Lyrics
+
 [theme]
 mode = "auto"        # auto | dark | light
 name = "default"
