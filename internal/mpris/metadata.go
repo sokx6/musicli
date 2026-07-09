@@ -34,6 +34,9 @@ func Metadata(s Snapshot) map[string]godbus.Variant {
 		u := url.URL{Scheme: "file", Path: s.Track.Path}
 		metadata["xesam:url"] = godbus.MakeVariant(u.String())
 	}
+	if s.CoverURL != "" {
+		metadata["mpris:artUrl"] = godbus.MakeVariant(s.CoverURL)
+	}
 	if s.LyricText != "" {
 		metadata["xesam:asText"] = godbus.MakeVariant(s.LyricText)
 		metadata["xesam:comment"] = godbus.MakeVariant(s.LyricText)

@@ -19,6 +19,7 @@ func TestMetadataIncludesTrackAndLyrics(t *testing.T) {
 		CurrentIndex: 2,
 		DurationMS:   123456,
 		LyricText:    "[00:00.00]hello\n[00:01.00]world",
+		CoverURL:     "file:///tmp/musicli-cover.png",
 	}
 
 	metadata := Metadata(snapshot)
@@ -46,6 +47,9 @@ func TestMetadataIncludesTrackAndLyrics(t *testing.T) {
 	}
 	if got := variantValue[string](t, metadata, "xesam:comment"); got != snapshot.LyricText {
 		t.Fatalf("comment = %q", got)
+	}
+	if got := variantValue[string](t, metadata, "mpris:artUrl"); got != snapshot.CoverURL {
+		t.Fatalf("artUrl = %q", got)
 	}
 }
 

@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/png"
 	"math/rand/v2"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -155,6 +158,7 @@ type App struct {
 	lyric      *lyrics.Lyric
 	lyricPath  string
 	coverImage image.Image
+	coverURL   string
 
 	leftContent     leftContentMode
 	libraryView     libraryViewMode
@@ -487,6 +491,7 @@ func (a *App) MPRISSnapshot() mpris.Snapshot {
 		DurationMS:     a.dur,
 		Volume:         a.volume,
 		Speed:          a.speed,
+		CoverURL:       a.coverURL,
 		LyricText:      lyricText,
 		LyricFormat:    lyricFormat,
 		CurrentLine:    currentLine,
@@ -1277,6 +1282,7 @@ func (a *App) loadCurrentLyrics() {
 func (a *App) loadCurrentCover() {
 	fl := a.log.WithFunc("loadCurrentCover")
 	a.coverImage = nil
+	a.coverURL = ""
 	if a.options.DisableCover {
 		return
 	}
@@ -1293,7 +1299,70 @@ func (a *App) loadCurrentCover() {
 		return
 	}
 	a.coverImage = img
+	coverURL, err := a.cacheCoverURL(path, img)
+	if err != nil {
+		fl.Debug("cover cache skipped", "path", path, "err", err)
+	} else {
+		a.coverURL = coverURL
+	}
 	fl.Info("cover loaded", "path", path, "bounds", img.Bounds().String())
+}
+
+func (a *App) cacheCoverURL(audioPath string, img image.Image) (string, error) {
+	if audioPath == "" || img == nil {
+		return "", nil
+	}
+	cacheDir, err := os.UserCacheDir()
+	if err != nil || cacheDir == "" {
+		return "", fmt.Errorf("resolve user cache dir: %w", err)
+	}
+	dir := filepath.Join(cacheDir, "musicli", "covers")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create cover cache dir: %w", err)
+	}
+	name := fmt.Sprintf("%08x-%08x.png", fnv32a(audioPath), imageHash(img))
+	path := filepath.Join(dir, name)
+	f, err := os.Create(path)
+	if err != nil {
+		return "", fmt.Errorf("create cached cover: %w", err)
+	}
+	encodeErr := png.Encode(f, img)
+	closeErr := f.Close()
+	if encodeErr != nil {
+		return "", fmt.Errorf("encode cached cover: %w", encodeErr)
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("close cached cover: %w", closeErr)
+	}
+	u := url.URL{Scheme: "file", Path: path}
+	return u.String(), nil
+}
+
+func fnv32a(s string) uint32 {
+	var h uint32 = 2166136261
+	for i := 0; i < len(s); i++ {
+		h ^= uint32(s[i])
+		h *= 16777619
+	}
+	return h
+}
+
+func imageHash(img image.Image) uint32 {
+	if img == nil {
+		return 0
+	}
+	bounds := img.Bounds()
+	h := fnv32a(bounds.String())
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, a := img.At(x, y).RGBA()
+			for _, v := range []uint32{uint32(r), uint32(g), uint32(b), uint32(a)} {
+				h ^= v
+				h *= 16777619
+			}
+		}
+	}
+	return h
 }
 
 // --- layout ---

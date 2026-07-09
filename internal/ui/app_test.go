@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1469,6 +1470,42 @@ func TestMPRISSnapshotExportsPlainLyricsWhenUnsynced(t *testing.T) {
 	}
 	if snapshot.LyricFormat != "plain" || snapshot.Synced {
 		t.Fatalf("lyric format/synced = %q/%v, want plain/false", snapshot.LyricFormat, snapshot.Synced)
+	}
+}
+
+func TestMPRISSnapshotExportsCoverURL(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.tracks = []*library.Track{{Title: "one"}}
+	app.current = 0
+	app.coverURL = "file:///tmp/musicli-cover.png"
+
+	snapshot := app.MPRISSnapshot()
+
+	if snapshot.CoverURL != "file:///tmp/musicli-cover.png" {
+		t.Fatalf("cover url = %q", snapshot.CoverURL)
+	}
+}
+
+func TestCacheCoverURLWritesPNGFileURL(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+
+	coverURL, err := app.cacheCoverURL("/music/song.flac", testCoverImage(2, 2))
+	if err != nil {
+		t.Fatalf("cache cover: %v", err)
+	}
+	parsed, err := url.Parse(coverURL)
+	if err != nil {
+		t.Fatalf("parse cover url: %v", err)
+	}
+	if parsed.Scheme != "file" {
+		t.Fatalf("cover url scheme = %q, want file", parsed.Scheme)
+	}
+	if filepath.Ext(parsed.Path) != ".png" {
+		t.Fatalf("cover file extension = %q, want .png", filepath.Ext(parsed.Path))
+	}
+	if _, err := os.Stat(parsed.Path); err != nil {
+		t.Fatalf("cached cover does not exist: %v", err)
 	}
 }
 

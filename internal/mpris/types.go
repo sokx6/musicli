@@ -28,6 +28,7 @@ type Snapshot struct {
 	DurationMS     int
 	Volume         int
 	Speed          float64
+	CoverURL       string
 	LyricText      string
 	LyricFormat    string
 	CurrentLine    string
