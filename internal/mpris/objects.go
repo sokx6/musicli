@@ -144,6 +144,7 @@ func playerProperties(s Snapshot) map[string]godbus.Variant {
 	if rate == 0 {
 		rate = 1.0
 	}
+	hasTrack := s.Track != nil
 	return map[string]godbus.Variant{
 		"PlaybackStatus": godbus.MakeVariant(string(s.PlaybackStatus)),
 		"LoopStatus":     godbus.MakeVariant(string(s.LoopStatus)),
@@ -154,11 +155,11 @@ func playerProperties(s Snapshot) map[string]godbus.Variant {
 		"Position":       godbus.MakeVariant(int64(s.PositionMS) * 1000),
 		"MinimumRate":    godbus.MakeVariant(0.5),
 		"MaximumRate":    godbus.MakeVariant(2.0),
-		"CanGoNext":      godbus.MakeVariant(true),
-		"CanGoPrevious":  godbus.MakeVariant(true),
-		"CanPlay":        godbus.MakeVariant(true),
-		"CanPause":       godbus.MakeVariant(true),
-		"CanSeek":        godbus.MakeVariant(true),
+		"CanGoNext":      godbus.MakeVariant(hasTrack),
+		"CanGoPrevious":  godbus.MakeVariant(hasTrack),
+		"CanPlay":        godbus.MakeVariant(hasTrack),
+		"CanPause":       godbus.MakeVariant(hasTrack),
+		"CanSeek":        godbus.MakeVariant(hasTrack),
 		"CanControl":     godbus.MakeVariant(true),
 	}
 }

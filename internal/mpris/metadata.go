@@ -7,6 +7,10 @@ import (
 )
 
 func Metadata(s Snapshot) map[string]godbus.Variant {
+	if s.Track == nil {
+		return map[string]godbus.Variant{}
+	}
+
 	trackID := TrackID(s)
 	durationMS := s.DurationMS
 	if durationMS == 0 && s.Track != nil {
@@ -16,9 +20,6 @@ func Metadata(s Snapshot) map[string]godbus.Variant {
 	metadata := map[string]godbus.Variant{
 		"mpris:trackid": godbus.MakeVariant(trackID),
 		"mpris:length":  godbus.MakeVariant(int64(durationMS) * 1000),
-	}
-	if s.Track == nil {
-		return metadata
 	}
 
 	metadata["xesam:title"] = godbus.MakeVariant(s.Track.Title)

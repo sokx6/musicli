@@ -53,6 +53,14 @@ func TestMetadataIncludesTrackAndLyrics(t *testing.T) {
 	}
 }
 
+func TestMetadataIsEmptyWithoutTrack(t *testing.T) {
+	metadata := Metadata(Snapshot{CurrentIndex: -1})
+
+	if len(metadata) != 0 {
+		t.Fatalf("metadata without track = %#v, want empty", metadata)
+	}
+}
+
 func variantValue[T any](t *testing.T, metadata map[string]godbus.Variant, key string) T {
 	t.Helper()
 	variant, ok := metadata[key]
