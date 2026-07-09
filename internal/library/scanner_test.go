@@ -3,6 +3,7 @@ package library
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/locxl/musicli/internal/log"
@@ -49,5 +50,51 @@ func TestScanPathFakeMP3(t *testing.T) {
 	}
 	if tracks[0].Title != "fake_song" {
 		t.Errorf("expected Title %q, got %q", "fake_song", tracks[0].Title)
+	}
+}
+
+func TestScanPathDoesNotProbeDurationForEveryTrack(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a shell script ffprobe shim")
+	}
+
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	if err := os.Mkdir(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(dir, "ffprobe-called")
+	ffprobe := filepath.Join(binDir, "ffprobe")
+	if err := os.WriteFile(ffprobe, []byte("#!/bin/sh\necho called >> \"$FFPROBE_MARKER\"\necho 1.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FFPROBE_MARKER", marker)
+
+	musicDir := filepath.Join(dir, "music")
+	if err := os.Mkdir(musicDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"one.mp3", "two.flac", "three.ogg"} {
+		if err := os.WriteFile(filepath.Join(musicDir, name), []byte{}, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := NewScanner(log.Discard())
+	tracks, err := s.ScanPath(musicDir)
+	if err != nil {
+		t.Fatalf("ScanPath error: %v", err)
+	}
+	if len(tracks) != 3 {
+		t.Fatalf("tracks = %d, want 3", len(tracks))
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("ScanPath invoked ffprobe during library scan")
+	}
+	for _, tr := range tracks {
+		if tr.Duration != 0 {
+			t.Fatalf("track %q duration = %d, want 0 until playback probes it", tr.Path, tr.Duration)
+		}
 	}
 }

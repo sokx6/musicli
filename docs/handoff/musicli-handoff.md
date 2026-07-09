@@ -171,8 +171,8 @@ ui → {audio, library, playlist, lyrics, cover, theme}  # 唯一依赖 bubblete
 ### 阶段 2: 媒体库 (54f3107)
 - `Track` 结构体：Path/Title/Artist/AlbumArtist/Album/Composer/Genre/Year/TrackNo/DiscNo/Duration/Size/HasCover
 - `ReadTags`：dhowden/tag 封装，失败用文件名兜底（Track 仍入库）
-- `Scanner`：递归扫描，9 种扩展名（mp3/flac/ogg/wav/m4a/aac/opus/aiff/wma），tag/stat/duration 失败记 warning 不中断
-- `probeDuration`：本地 ffprobe 封装（叶子包不依赖 audio）
+- `Scanner`：递归扫描，9 种扩展名（mp3/flac/ogg/wav/m4a/aac/opus/aiff/wma），tag/stat 失败记 warning 不中断
+- 启动扫描不再对每首歌跑 `ffprobe`；当前播放曲的时长由 audio engine 在播放时异步探测，避免大目录启动被大量子进程阻塞
 - `GroupByAlbum`：按 Album 聚合，Unknown Album/Artist 兜底，专辑内按 DiscNo/TrackNo/Title 排序
 - `SortTracks`：5 字段 × 2 方向，空值/零值排末尾
 
@@ -243,6 +243,14 @@ ui → {audio, library, playlist, lyrics, cover, theme}  # 唯一依赖 bubblete
 - 歌词对齐只作用在歌词 pane 内；封面+歌词同时显示时，歌词不会进入封面区域
 - `[lyrics] align = "left" | "center" | "right"` 控制启动时默认歌词对齐，`a` 只切换当前会话
 - CJK 逐字高亮当前行仍保持定宽渲染，避免宽字符高亮状态变化时产生偏移
+
+### 阶段 8.5: 列表/filter 稳定化 + 大目录启动性能
+- filter 搜索态和已应用 filter 态下，歌曲标题保持单行显示，不因高亮 SGR 或外层 right pane 二次渲染而换行
+- filter 命中的长标题会按列表可用宽度正常截断，不会被高亮 chunk 的固定宽度样式切碎或过早截断
+- filtered queue 只在曲目列表处于过滤状态时生效；重置 filter 后播放队列回到全部曲目/当前专辑语义
+- right pane 使用 `fitBlock(trackList.View(), width, height)` 裁剪到栏位尺寸，避免 Lip Gloss 外层 `Width()` 对已渲染列表再次 word wrap
+- 启动扫描移除逐文件 `ffprobe` duration probe：大目录下不再为每个音频文件启动外部进程；当前播放曲仍由 audio engine 异步探测时长
+- 回归测试覆盖 filter 单行显示、完整 App.View 渲染、filter reset 后 queue 来源、以及 library 扫描不调用 `ffprobe`
 
 ## 7. 日志系统
 

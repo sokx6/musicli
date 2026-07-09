@@ -502,6 +502,27 @@ func TestSetQueueForCurrentSelectionCreatesFilteredQueue(t *testing.T) {
 	}
 }
 
+func TestSetQueueForCurrentSelectionUsesAllTracksAfterFilterReset(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Title: "Alpha"},
+		{Title: "Beta"},
+		{Title: "Alpine"},
+	}})
+	app = m.(*App)
+	app.trackList.SetFilterText("Al")
+	app.trackList.ResetFilter()
+
+	app.setQueueForCurrentSelection()
+
+	if got := app.queueSourceLabel(); got != "all" {
+		t.Fatalf("queue source = %q, want all", got)
+	}
+	if got := len(app.queue); got != 3 {
+		t.Fatalf("queue len = %d, want 3", got)
+	}
+}
+
 func TestQueueDoesNotChangeWhenLibraryViewChanges(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
 		GroupByAlbum:   true,

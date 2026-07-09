@@ -84,7 +84,7 @@ func (s *Scanner) ScanPath(path string) ([]*Track, error) {
 	return tracks, nil
 }
 
-// processFile attempts to read tags and duration for a single path.
+// processFile attempts to read tags for a single path.
 // It returns (track, true) for every audio file, even when tags fail.
 func (s *Scanner) processFile(path string) (*Track, bool) {
 	fl := s.log.WithModule("library").WithFunc("processFile")
@@ -107,14 +107,6 @@ func (s *Scanner) processFile(path string) (*Track, bool) {
 	} else {
 		t.Size = stat.Size()
 		fl.Debug("stat ok", "path", path, "size", t.Size)
-	}
-
-	dur, err := probeDuration(path)
-	if err != nil {
-		fl.Warn("duration probe failed", "path", path, "err", err)
-	} else {
-		t.Duration = dur
-		fl.Debug("duration probed", "path", path, "duration_ms", t.Duration)
 	}
 
 	return &t, true
