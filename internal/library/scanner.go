@@ -65,7 +65,6 @@ func (s *Scanner) ScanPath(path string) ([]*Track, error) {
 			return nil
 		}
 		totalFiles++
-		fl.Debug("file found", "path", p, "is_audio", s.isAudio(p))
 		if t, ok := s.processFile(p); ok {
 			tracks = append(tracks, t)
 		}
@@ -92,13 +91,9 @@ func (s *Scanner) processFile(path string) (*Track, bool) {
 		return nil, false
 	}
 
-	fl.Debug("processing", "path", path)
-
 	t, err := ReadTags(path, s.log)
 	if err != nil {
 		fl.Warn("tag read failed", "path", path, "err", err)
-	} else {
-		fl.Debug("tags read", "path", path, "title", t.Title, "artist", t.Artist)
 	}
 
 	stat, err := os.Stat(path)
@@ -106,7 +101,6 @@ func (s *Scanner) processFile(path string) (*Track, bool) {
 		fl.Warn("stat failed", "path", path, "err", err)
 	} else {
 		t.Size = stat.Size()
-		fl.Debug("stat ok", "path", path, "size", t.Size)
 	}
 
 	return &t, true

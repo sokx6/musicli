@@ -14,7 +14,6 @@ import (
 // On error it returns a Track with Path and Title derived from the filename
 // so the file remains visible in the library.
 func ReadTags(path string, lg *log.Logger) (Track, error) {
-	fl := lg.WithModule("library").WithFunc("ReadTags")
 	f, err := os.Open(path)
 	if err != nil {
 		return fallbackTrack(path), fmt.Errorf("open %q: %w", path, err)
@@ -43,36 +42,6 @@ func ReadTags(path string, lg *log.Logger) (Track, error) {
 
 	discNo, _ := m.Disc()
 	t.DiscNo = discNo
-
-	// Gather raw tag keys
-	raw := m.Raw()
-	rawKeys := make([]string, 0, len(raw))
-	for k := range raw {
-		rawKeys = append(rawKeys, k)
-	}
-
-	pic := m.Picture()
-	picSize := 0
-	if pic != nil {
-		picSize = len(pic.Data)
-	}
-
-	if t.Title == filenameTitle(path) {
-		fl.Debug("fallback to filename title", "path", path)
-	}
-
-	fl.Debug("read tags",
-		"path", path,
-		"file_type", m.FileType(),
-		"format", m.Format(),
-		"raw_keys", strings.Join(rawKeys, ","),
-		"picture_present", pic != nil,
-		"picture_size", picSize,
-		"title", t.Title,
-		"artist", t.Artist,
-		"album", t.Album,
-		"year", t.Year,
-	)
 
 	return t, nil
 }

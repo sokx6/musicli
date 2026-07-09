@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/locxl/musicli/internal/log"
@@ -96,5 +97,46 @@ func TestScanPathDoesNotProbeDurationForEveryTrack(t *testing.T) {
 		if tr.Duration != 0 {
 			t.Fatalf("track %q duration = %d, want 0 until playback probes it", tr.Path, tr.Duration)
 		}
+	}
+}
+
+func TestScanPathAvoidsPerFileDebugLogNoise(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "musicli.log")
+	logger, err := log.New(log.LevelDebug, logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+
+	musicDir := filepath.Join(dir, "music")
+	if err := os.Mkdir(musicDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"one.mp3", "two.flac", "note.txt"} {
+		if err := os.WriteFile(filepath.Join(musicDir, name), []byte{}, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := NewScanner(logger)
+	if _, err := s.ScanPath(musicDir); err != nil {
+		t.Fatalf("ScanPath error: %v", err)
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, noisy := range []string{"file found", "processing", "tags read", "stat ok", "[ReadTags] read tags"} {
+		if strings.Contains(text, noisy) {
+			t.Fatalf("scan log contains per-file debug message %q:\n%s", noisy, text)
+		}
+	}
+	if !strings.Contains(text, "scan started") || !strings.Contains(text, "scan completed") {
+		t.Fatalf("scan log missing aggregate scan messages:\n%s", text)
 	}
 }
