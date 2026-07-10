@@ -268,6 +268,50 @@ func TestFavoriteTrackItemHasStarMarker(t *testing.T) {
 	}
 }
 
+func TestTrackItemFavoriteMarkerOffsetsOnlyFavoriteTitle(t *testing.T) {
+	track := &library.Track{Title: "Favorite"}
+	plain := trackItem{track: track}
+	favorite := trackItem{track: track, favorite: true}
+
+	if got, want := plain.Title(), "Favorite"; got != want {
+		t.Fatalf("plain title = %q, want %q", got, want)
+	}
+	if got, want := favorite.Title(), "★ Favorite"; got != want {
+		t.Fatalf("favorite title = %q, want %q", got, want)
+	}
+}
+
+func TestTrackItemDescriptionAlignsWithTitleText(t *testing.T) {
+	item := trackItem{track: &library.Track{Title: "Song", Artist: "Artist"}}
+	if got, want := item.Description(), "Artist"; got != want {
+		t.Fatalf("description = %q, want %q", got, want)
+	}
+}
+
+func TestAlbumAndPlaylistDescriptionsAlignWithTitles(t *testing.T) {
+	album := albumItem{album: &library.Album{Name: "Album", AlbumArtist: "Artist"}}
+	if got, want := album.Description(), "Artist - 0 tracks"; got != want {
+		t.Fatalf("album description = %q, want %q", got, want)
+	}
+	list := playlistItem{playlist: playlist.Playlist{Name: "List"}}
+	if got, want := list.Description(), "0 tracks"; got != want {
+		t.Fatalf("playlist description = %q, want %q", got, want)
+	}
+}
+
+func TestListTitleAndDescriptionStylesShareLeftEdge(t *testing.T) {
+	styles := newListStyles(theme.Default())
+	styles.SelectedTitle = styles.SelectedTitle.Inline(true)
+	styles.SelectedDesc = styles.SelectedDesc.Inline(true)
+
+	if got, want := ansi.Strip(styles.SelectedTitle.Render("Album")), "Album"; got != want {
+		t.Fatalf("rendered title = %q, want %q", got, want)
+	}
+	if got, want := ansi.Strip(styles.SelectedDesc.Render("Artist")), "Artist"; got != want {
+		t.Fatalf("rendered description = %q, want %q", got, want)
+	}
+}
+
 func TestToggleFavoritePrefersCurrentPlayingTrack(t *testing.T) {
 	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
 	if err != nil {
@@ -342,6 +386,85 @@ func TestToggleFavoriteKeepsFilteredTrackList(t *testing.T) {
 	item, ok := app.trackList.SelectedItem().(trackItem)
 	if !ok || !strings.HasPrefix(item.Title(), "★ ") {
 		t.Fatalf("filtered favorite item = %#v, want star marker", app.trackList.SelectedItem())
+	}
+}
+
+func TestToggleFavoriteUsesSelectedFilteredTrackWhilePlaying(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "one.mp3", Title: "One"},
+		{Path: "two.mp3", Title: "Two"},
+	}})
+	app = m.(*App)
+	app.current = 0
+	app.state = audio.StatePlaying
+	app.trackList.SetFilterText("Two")
+
+	app.toggleFavorite()
+
+	if !store.IsFavorite("two.mp3") || store.IsFavorite("one.mp3") {
+		t.Fatalf("favorites = one:%t two:%t, want selected filtered track only", store.IsFavorite("one.mp3"), store.IsFavorite("two.mp3"))
+	}
+}
+
+func TestToggleFavoriteUsesSelectedPlaylistTrackWhilePlaying(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pl, err := store.Create("Road Trip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Add(pl.ID, "two.mp3")
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "one.mp3", Title: "One"},
+		{Path: "two.mp3", Title: "Two"},
+	}})
+	app = m.(*App)
+	app.current = 0
+	app.state = audio.StatePlaying
+	app.currentPlaylist = pl.ID
+	app.setLibraryView(libraryViewPlaylistTracks)
+
+	app.toggleFavorite()
+
+	if !store.IsFavorite("two.mp3") || store.IsFavorite("one.mp3") {
+		t.Fatalf("favorites = one:%t two:%t, want selected playlist track only", store.IsFavorite("one.mp3"), store.IsFavorite("two.mp3"))
+	}
+}
+
+func TestChoosePlaylistForFilteredTrackClearsTrackFilter(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("Road Trip"); err != nil {
+		t.Fatal(err)
+	}
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "one.mp3", Title: "One"},
+		{Path: "two.mp3", Title: "Two"},
+	}})
+	app = m.(*App)
+	app.trackList.SetFilterText("Two")
+
+	app.choosePlaylistForSelectedTrack()
+
+	if app.libraryView != libraryViewPlaylists {
+		t.Fatalf("library view = %v, want playlists", app.libraryView)
+	}
+	if app.trackList.IsFiltered() || app.trackList.FilterValue() != "" {
+		t.Fatalf("playlist list retained track filter %q", app.trackList.FilterValue())
+	}
+	if got := len(app.trackList.VisibleItems()); got != 2 {
+		t.Fatalf("visible playlists = %d, want Favorites and Road Trip", got)
 	}
 }
 
@@ -944,6 +1067,35 @@ func TestRenderProgressBarShowsCurrentPosition(t *testing.T) {
 	}
 	if ansi.StringWidth(ansi.Strip(half)) > 20 {
 		t.Fatalf("progress bar width = %d, want <= 20: %q", ansi.StringWidth(ansi.Strip(half)), half)
+	}
+}
+
+func TestSeparatorProgressUsesPlayerBarBorderRow(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{ProgressStyle: "separator"})
+	app.width = 20
+	app.pos = 500
+	app.dur = 1000
+
+	lines := strings.Split(ansi.Strip(app.renderPlayerBar()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("separator player bar rendered %d lines, want separator plus two content lines:\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	if got := ansi.StringWidth(lines[0]); got != 20 {
+		t.Fatalf("separator width = %d, want 20: %q", got, lines[0])
+	}
+	if strings.Trim(lines[0], "─") != "" {
+		t.Fatalf("separator = %q, want only border glyphs", lines[0])
+	}
+}
+
+func TestSeparatorProgressIncreasesBodyHeight(t *testing.T) {
+	bar := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	separator := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{ProgressStyle: "separator"})
+	bar.height = 24
+	separator.height = 24
+
+	if got, want := separator.bodyHeight(), bar.bodyHeight()+1; got != want {
+		t.Fatalf("separator body height = %d, want %d", got, want)
 	}
 }
 

@@ -71,6 +71,7 @@ func run() error {
 		"theme.mode", cfg.Theme.Mode,
 		"theme.name", cfg.Theme.Name,
 		"ui.track_list_max_width", cfg.UI.TrackListMaxWidth,
+		"ui.progress_style", cfg.UI.ProgressStyle,
 		"log.level", cfg.Log.Level,
 		"log.file", cfg.Log.File,
 		"config_path", xdg.ConfigPath(),
@@ -125,6 +126,7 @@ func run() error {
 
 	app := ui.NewWithOptions(eng, sc, t, logger, ui.Options{
 		TrackListMaxWidth: cfg.UI.TrackListMaxWidth,
+		ProgressStyle:     cfg.UI.ProgressStyle,
 		DisableCover:      !cfg.Cover.Show,
 		CoverScale:        cfg.Cover.Scale,
 		CoverProtocol:     cfg.Cover.Protocol,

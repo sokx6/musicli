@@ -72,7 +72,8 @@ type Theme struct {
 }
 
 type UI struct {
-	TrackListMaxWidth int `toml:"track_list_max_width"`
+	TrackListMaxWidth int    `toml:"track_list_max_width"`
+	ProgressStyle     string `toml:"progress_style"`
 }
 
 type Keybindings struct {
@@ -184,6 +185,14 @@ func (c *Config) applyDefaults(warnings *[]string) {
 	if c.UI.TrackListMaxWidth < 0 {
 		*warnings = append(*warnings, fmt.Sprintf("ui.track_list_max_width %d out of range, using 0", c.UI.TrackListMaxWidth))
 		c.UI.TrackListMaxWidth = 0
+	}
+	switch c.UI.ProgressStyle {
+	case "", "bar":
+		c.UI.ProgressStyle = "bar"
+	case "separator":
+	default:
+		*warnings = append(*warnings, fmt.Sprintf("ui.progress_style %q invalid, using bar", c.UI.ProgressStyle))
+		c.UI.ProgressStyle = "bar"
 	}
 	switch c.Cover.Scale {
 	case "", "fit":

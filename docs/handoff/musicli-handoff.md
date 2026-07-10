@@ -327,6 +327,7 @@ name = "default"
 
 [ui]
 track_list_max_width = 80  # 0 = unlimited
+progress_style = "bar"     # bar | separator; separator colors the player-bar top border by playback progress
 
 [keybindings]
 # 空 = 用内置默认

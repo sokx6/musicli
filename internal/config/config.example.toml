@@ -38,6 +38,7 @@ name = "default"
 
 [ui]
 track_list_max_width = 80 # 0 = unlimited; otherwise cap the content-fit track list width
+progress_style = "bar"   # bar | separator; separator colors the player-bar top border by playback progress
 
 [keybindings]
 # Empty = use built-in defaults. Override individual keys here, e.g.:

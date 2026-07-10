@@ -23,6 +23,9 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	if c.UI.TrackListMaxWidth != 80 {
 		t.Errorf("default track_list_max_width = %d, want 80", c.UI.TrackListMaxWidth)
 	}
+	if c.UI.ProgressStyle != "bar" {
+		t.Errorf("default progress_style = %q, want bar", c.UI.ProgressStyle)
+	}
 	if c.Library.GroupByAlbum {
 		t.Errorf("default group_by_album = true, want false")
 	}
@@ -80,6 +83,7 @@ align = "sideways"
 sort_field = "nonsense"
 [ui]
 track_list_max_width = -1
+progress_style = "wrong"
 [cover]
 scale = "warped"
 protocol = "bad"
@@ -114,6 +118,9 @@ level = "wat"
 	if c.UI.TrackListMaxWidth != 0 {
 		t.Errorf("clamped track_list_max_width = %d, want 0", c.UI.TrackListMaxWidth)
 	}
+	if c.UI.ProgressStyle != "bar" {
+		t.Errorf("clamped progress_style = %q, want bar", c.UI.ProgressStyle)
+	}
 	if c.Cover.Scale != "fit" {
 		t.Errorf("clamped cover scale = %q, want fit", c.Cover.Scale)
 	}
@@ -122,6 +129,23 @@ level = "wat"
 	}
 	if len(warnings) < 9 {
 		t.Errorf("expected >=9 warnings, got %d: %v", len(warnings), warnings)
+	}
+}
+
+func TestLoadAcceptsSeparatorProgressStyle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[ui]\nprogress_style = \"separator\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if c.UI.ProgressStyle != "separator" {
+		t.Fatalf("progress_style = %q, want separator", c.UI.ProgressStyle)
 	}
 }
 

@@ -60,6 +60,9 @@ func (i trackItem) Description() string {
 	if d > 0 {
 		parts = append(parts, fmtDuration(d))
 	}
+	if len(parts) == 0 {
+		return ""
+	}
 	return strings.Join(parts, " - ")
 }
 func (i trackItem) FilterValue() string { return i.track.Title + " " + i.track.Artist }
@@ -107,17 +110,19 @@ func (i albumItem) FilterValue() string {
 type Options struct {
 	// TrackListMaxWidth caps the content-fit track list width. Zero means no cap.
 	TrackListMaxWidth int
-	DisableCover      bool
-	CoverScale        string
-	CoverProtocol     string
-	LibrarySortField  string
-	LibrarySortOrder  string
-	GroupByAlbum      bool
-	PlaybackRepeat    string
-	PlaybackShuffle   bool
-	LyricsAlign       string
-	PlaylistStore     *playlist.Store
-	MPRISSink         func(mpris.Snapshot)
+	// ProgressStyle chooses an independent bar or the player-bar separator.
+	ProgressStyle    string
+	DisableCover     bool
+	CoverScale       string
+	CoverProtocol    string
+	LibrarySortField string
+	LibrarySortOrder string
+	GroupByAlbum     bool
+	PlaybackRepeat   string
+	PlaybackShuffle  bool
+	LyricsAlign      string
+	PlaylistStore    *playlist.Store
+	MPRISSink        func(mpris.Snapshot)
 }
 
 type leftContentMode int
@@ -802,6 +807,8 @@ func (a *App) choosePlaylistForSelectedTrack() {
 		return
 	}
 	a.pendingPlaylistTrack = a.tracks[idx]
+	// A track search must not also filter the destination playlist list.
+	a.trackList.ResetFilter()
 	a.setLibraryView(libraryViewPlaylists)
 }
 
@@ -867,12 +874,11 @@ func (a *App) toggleFavorite() {
 	if a.playlists == nil {
 		return
 	}
-	idx := -1
-	if a.state == audio.StatePlaying || a.state == audio.StatePaused {
+	idx := a.selectedTrackIndex()
+	// Preserve the active-song shortcut only in the unfiltered main track list.
+	// Search, album, and playlist track views operate on their selected item.
+	if a.libraryView == libraryViewTracks && !a.trackList.IsFiltered() && (a.state == audio.StatePlaying || a.state == audio.StatePaused) {
 		idx = a.current
-	}
-	if idx < 0 || idx >= len(a.tracks) {
-		idx = a.selectedTrackIndex()
 	}
 	if idx < 0 || idx >= len(a.tracks) {
 		return
@@ -978,8 +984,8 @@ func (a *App) deleteCurrentPlaylist() {
 func (a *App) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	fl := a.log.WithFunc("handleMouse")
 	leftW := a.leftPaneWidth()
-	const topBarTotalH = 2    // 1 content + bottom border
-	const playerBarTotalH = 4 // 3 content + top border
+	const topBarTotalH = 2 // 1 content + bottom border
+	playerBarTotalH := a.playerBarHeight()
 
 	fl.Debug("mouse click", "x", msg.X, "y", msg.Y, "button", mouseButtonStr(msg.Button))
 
@@ -1927,13 +1933,23 @@ func (a *App) layoutWidths() (leftW, listW int) {
 }
 
 func (a *App) bodyHeight() int {
-	const topBarH = 2    // 1 content + bottom border
-	const playerBarH = 4 // 3 content + top border
-	h := a.height - topBarH - playerBarH
+	const topBarH = 2 // 1 content + bottom border
+	h := a.height - topBarH - a.playerBarHeight()
 	if h < 1 {
 		h = 1
 	}
 	return h
+}
+
+func (a *App) usesSeparatorProgress() bool {
+	return a.options.ProgressStyle == "separator"
+}
+
+func (a *App) playerBarHeight() int {
+	if a.usesSeparatorProgress() {
+		return 3 // progress separator + status + help
+	}
+	return 4 // border + status + progress + help
 }
 
 func (a *App) resizeComponents() {
@@ -1956,11 +1972,11 @@ func (a *App) resizeComponents() {
 	// between the chunks.
 	s := newListStyles(a.theme)
 	s.NormalTitle = s.NormalTitle.Inline(true)
-	s.NormalDesc = s.NormalDesc.Width(listW)
+	s.NormalDesc = s.NormalDesc.Inline(true)
 	s.SelectedTitle = s.SelectedTitle.Inline(true)
-	s.SelectedDesc = s.SelectedDesc.Width(listW)
+	s.SelectedDesc = s.SelectedDesc.Inline(true)
 	s.DimmedTitle = s.DimmedTitle.Inline(true)
-	s.DimmedDesc = s.DimmedDesc.Width(listW)
+	s.DimmedDesc = s.DimmedDesc.Inline(true)
 	a.delegate.Styles = s
 	// The list stores its own copy of the delegate; updating a.delegate alone
 	// leaves the rendered list using the old narrow styles.
@@ -2012,7 +2028,7 @@ func (a *App) View() tea.View {
 	}
 	body = fitBlock(body, a.width, bodyH)
 
-	bar := fitBlock(a.renderPlayerBar(), a.width, 4)
+	bar := fitBlock(a.renderPlayerBar(), a.width, a.playerBarHeight())
 
 	full := lipgloss.JoinVertical(lipgloss.Left, topBar, body, bar)
 	full = fitBlock(full, a.width, a.height)
@@ -2466,15 +2482,36 @@ func (a *App) renderPlayerBar() string {
 		contentW = 1
 	}
 
+	if a.usesSeparatorProgress() {
+		content := strings.Join([]string{
+			a.renderPlayerStatusLine(contentW),
+			a.renderPlayerHelpLine(contentW),
+		}, "\n")
+		style = style.BorderTop(false)
+		return a.renderSeparatorProgress(w) + "\n" + style.Width(w).Render(content)
+	}
+
 	content := strings.Join([]string{
 		a.renderPlayerStatusLine(contentW),
 		a.renderProgressBar(contentW),
 		a.renderPlayerHelpLine(contentW),
 	}, "\n")
+	return style.Width(w).Render(content)
+}
 
-	return style.
-		Width(w).
-		Render(content)
+func (a *App) renderSeparatorProgress(width int) string {
+	if width < 1 {
+		return ""
+	}
+	played := int(a.playbackPercent() * float64(width))
+	if played < 0 {
+		played = 0
+	}
+	if played > width {
+		played = width
+	}
+	return a.styles.accent.Render(strings.Repeat("─", played)) +
+		a.styles.muted.Render(strings.Repeat("─", width-played))
 }
 
 func (a *App) playerStateIcon() string {
