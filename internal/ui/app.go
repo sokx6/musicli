@@ -111,18 +111,19 @@ type Options struct {
 	// TrackListMaxWidth caps the content-fit track list width. Zero means no cap.
 	TrackListMaxWidth int
 	// ProgressStyle chooses an independent bar or the player-bar separator.
-	ProgressStyle    string
-	DisableCover     bool
-	CoverScale       string
-	CoverProtocol    string
-	LibrarySortField string
-	LibrarySortOrder string
-	GroupByAlbum     bool
-	PlaybackRepeat   string
-	PlaybackShuffle  bool
-	LyricsAlign      string
-	PlaylistStore    *playlist.Store
-	MPRISSink        func(mpris.Snapshot)
+	ProgressStyle              string
+	SeparatorProgressThickness int
+	DisableCover               bool
+	CoverScale                 string
+	CoverProtocol              string
+	LibrarySortField           string
+	LibrarySortOrder           string
+	GroupByAlbum               bool
+	PlaybackRepeat             string
+	PlaybackShuffle            bool
+	LyricsAlign                string
+	PlaylistStore              *playlist.Store
+	MPRISSink                  func(mpris.Snapshot)
 }
 
 type leftContentMode int
@@ -1698,7 +1699,11 @@ const (
 )
 
 func (a *App) kittyProgressEnabled() bool {
-	return a.coverProtocol == cover.ProtocolKitty && a.usesSeparatorProgress() && a.width > 0 && a.height > 0
+	return a.usesKittyProgressOverlay() && a.width > 0 && a.height > 0
+}
+
+func (a *App) usesKittyProgressOverlay() bool {
+	return a.coverProtocol == cover.ProtocolKitty && a.usesSeparatorProgress()
 }
 
 func (a *App) kittyProgressCmd() tea.Cmd {
@@ -1714,16 +1719,16 @@ func (a *App) kittyProgressCmd() tea.Cmd {
 	if playedPixels == a.lastKittyProgressPx {
 		return nil
 	}
-	if playedPixels == 0 {
-		return a.resetKittyProgressCmd()
-	}
-
 	nextID := kittyProgressImageA
 	if a.kittyProgressImageID == kittyProgressImageA {
 		nextID = kittyProgressImageB
 	}
 	y := 2 + a.bodyHeight() + 1 // top bar, body, then 1-based separator row.
-	seq, err := cover.RenderKittyProgressLine(nextID, 1, y, a.width, a.cellPixelW, a.cellPixelH, playedPixels, a.theme.ProgressColor())
+	seq, err := cover.RenderKittyProgressLine(
+		nextID, 1, y, a.width, a.cellPixelW, a.cellPixelH, playedPixels,
+		a.options.SeparatorProgressThickness,
+		a.theme.ProgressColor(), a.theme.Muted,
+	)
 	if err != nil {
 		a.log.WithFunc("kittyProgressCmd").Warn("kitty progress render failed", "err", err)
 		return nil
@@ -1741,7 +1746,10 @@ func (a *App) resetKittyProgressCmd() tea.Cmd {
 		a.lastKittyProgressPx = -1
 		return nil
 	}
-	seq := cover.ClearKittyImage(a.kittyProgressImageID)
+	// Either alternating ID can survive an interrupted raw write. Clear both
+	// IDs whenever the overlay is reset so no stale line remains after a view
+	// switch or resize.
+	seq := cover.ClearKittyImage(kittyProgressImageA) + cover.ClearKittyImage(kittyProgressImageB)
 	a.kittyProgressImageID = 0
 	a.lastKittyProgressPx = -1
 	return tea.Raw(seq)
@@ -1751,18 +1759,13 @@ func (a *App) clearScreenAndKittyCoverCmd() tea.Cmd {
 	a.lastKittyCover = ""
 	a.kittyCoverDrawn = false
 	a.lastKittyFingerprint = ""
-	progressCmd := a.resetKittyProgressCmd()
 	if a.coverProtocol == cover.ProtocolKitty {
-		// ponytail: For kitty, ClearScreen forces a full repaint that erases the
-		// virtual image overlay. Skip it; if lyrics-only is active, clear the
-		// overlay immediately, otherwise the next tick redraws after the view
-		// settles.
-		if a.leftContent == leftContentLyrics {
-			return tea.Batch(a.kittyCoverCmd(), progressCmd)
-		}
-		return progressCmd
+		// ClearScreen erases kitty virtual placements. Refresh overlays in a
+		// deterministic z-order instead: cover first, then the progress line.
+		// The separator geometry is unchanged by v/c, so keep its placement live.
+		return tea.Sequence(a.kittyCoverCmd(), a.kittyProgressCmd())
 	}
-	return tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, tea.Batch(a.kittyCoverCmd(), progressCmd))
+	return tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, a.kittyCoverCmd())
 }
 
 func (a *App) lyricChangeCmd() tea.Cmd {
@@ -2561,6 +2564,11 @@ func (a *App) renderPlayerBar() string {
 func (a *App) renderSeparatorProgress(width int) string {
 	if width < 1 {
 		return ""
+	}
+	if a.usesKittyProgressOverlay() {
+		// The kitty overlay owns the complete line. Text underneath would mix
+		// font strokes with the one-pixel image whenever progress crosses a cell.
+		return strings.Repeat(" ", width)
 	}
 	played := int(a.playbackPercent() * float64(width))
 	if played < 0 {

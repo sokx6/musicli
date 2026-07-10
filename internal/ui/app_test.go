@@ -1,9 +1,12 @@
 package ui
 
 import (
+	"bytes"
+	"encoding/base64"
 	"fmt"
 	"image"
 	"image/color"
+	"image/png"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -1071,7 +1074,10 @@ func TestRenderProgressBarShowsCurrentPosition(t *testing.T) {
 }
 
 func TestSeparatorProgressUsesPlayerBarBorderRow(t *testing.T) {
-	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{ProgressStyle: "separator"})
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		CoverProtocol: "halfblock",
+		ProgressStyle: "separator",
+	})
 	app.width = 20
 	app.pos = 500
 	app.dur = 1000
@@ -1085,6 +1091,25 @@ func TestSeparatorProgressUsesPlayerBarBorderRow(t *testing.T) {
 	}
 	if strings.Trim(lines[0], "─") != "" {
 		t.Fatalf("separator = %q, want only border glyphs", lines[0])
+	}
+}
+
+func TestKittySeparatorBaseDoesNotAdvanceByTerminalCell(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		CoverProtocol: "kitty",
+		ProgressStyle: "separator",
+	})
+	app.dur = 1000
+	app.pos = 100
+	first := app.renderSeparatorProgress(20)
+	app.pos = 900
+	second := app.renderSeparatorProgress(20)
+
+	if first != second {
+		t.Fatalf("kitty separator base changed with progress; pixel overlay must be the only moving layer:\nfirst:  %q\nsecond: %q", first, second)
+	}
+	if strings.TrimSpace(ansi.Strip(first)) != "" {
+		t.Fatalf("kitty separator text base = %q, want blank overlay reservation", first)
 	}
 }
 
@@ -1125,6 +1150,85 @@ func TestKittyProgressUpdatesBelowCellGranularityWithoutBlankFrame(t *testing.T)
 	deleteAt := strings.Index(seq, "a=d")
 	if drawAt < 0 || deleteAt < drawAt {
 		t.Fatalf("replacement must draw before deleting previous image: %q", seq)
+	}
+}
+
+func TestKittyProgressUsesConfiguredThickness(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		CoverProtocol:              "kitty",
+		ProgressStyle:              "separator",
+		SeparatorProgressThickness: 3,
+	})
+	app.width = 2
+	app.height = 12
+	app.cellPixelW = 10
+	app.cellPixelH = 8
+	app.dur = 1000
+	app.pos = 500
+
+	cmd := app.kittyProgressCmd()
+	if cmd == nil {
+		t.Fatal("configured progress command is nil")
+	}
+	raw, ok := cmd().(tea.RawMsg)
+	if !ok {
+		t.Fatalf("configured progress message = %T, want tea.RawMsg", cmd())
+	}
+	seq := fmt.Sprint(raw.Msg)
+	drawStart := strings.Index(seq, "\x1b_Ga=T")
+	if drawStart < 0 {
+		t.Fatalf("progress draw sequence missing: %q", seq)
+	}
+	payloadStart := strings.Index(seq[drawStart:], ";")
+	if payloadStart < 0 {
+		t.Fatalf("progress payload separator missing: %q", seq)
+	}
+	payloadStart += drawStart + 1
+	payloadEnd := strings.Index(seq[payloadStart:], "\x1b\\")
+	if payloadEnd < 0 {
+		t.Fatalf("progress payload terminator missing: %q", seq)
+	}
+	payloadEnd += payloadStart
+	encoded := seq[payloadStart:payloadEnd]
+	pngBytes, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("decode progress payload: %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(pngBytes))
+	if err != nil {
+		t.Fatalf("decode progress png: %v", err)
+	}
+
+	opaqueRows := 0
+	for y := 0; y < app.cellPixelH; y++ {
+		if color.NRGBAModel.Convert(img.At(2, y)).(color.NRGBA).A > 0 {
+			opaqueRows++
+		}
+	}
+	if opaqueRows != 3 {
+		t.Fatalf("configured progress opaque rows = %d, want 3", opaqueRows)
+	}
+}
+
+func TestResetKittyProgressClearsBothOverlayIDs(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty", ProgressStyle: "separator"})
+	app.kittyProgressImageID = kittyProgressImageA
+	app.lastKittyProgressPx = 42
+
+	cmd := app.resetKittyProgressCmd()
+	if cmd == nil {
+		t.Fatal("reset progress command is nil")
+	}
+	raw, ok := cmd().(tea.RawMsg)
+	if !ok {
+		t.Fatalf("reset progress message = %T, want tea.RawMsg", cmd())
+	}
+	seq := fmt.Sprint(raw.Msg)
+	if !strings.Contains(seq, cover.ClearKittyImage(kittyProgressImageA)) || !strings.Contains(seq, cover.ClearKittyImage(kittyProgressImageB)) {
+		t.Fatalf("reset did not clear both progress images: %q", seq)
+	}
+	if app.kittyProgressImageID != 0 || app.lastKittyProgressPx != -1 {
+		t.Fatalf("reset state = id:%d px:%d, want id:0 px:-1", app.kittyProgressImageID, app.lastKittyProgressPx)
 	}
 }
 
@@ -1916,18 +2020,15 @@ func TestKittyToggleResetsDedupForNextTickRedraw(t *testing.T) {
 		t.Fatalf("unchanged kitty cover should not redraw, got command %#v", cmd())
 	}
 
-	// Toggle resets dedup and returns nil (no ClearScreen for kitty).
-	// The chunked APC payload prevents base64 leaking even if the drawSeq
-	// and view diff land in the same renderer flush.
-	if cmd := app.clearScreenAndKittyCoverCmd(); cmd != nil {
-		t.Fatalf("kitty toggle should return nil (no ClearScreen), got %v", cmd)
-	}
-
-	// Next kittyCoverCmd redraws after dedup reset.
-	if cmd := app.kittyCoverCmd(); cmd == nil {
-		t.Fatal("should redraw after dedup reset from toggle")
+	// Toggle redraws immediately instead of waiting for the next tick.
+	if cmd := app.clearScreenAndKittyCoverCmd(); cmd == nil {
+		t.Fatal("kitty toggle should redraw the cover immediately")
 	} else if _, ok := cmd().(tea.RawMsg); !ok {
 		t.Fatalf("redraw command returned %T, want tea.RawMsg", cmd())
+	}
+
+	if cmd := app.kittyCoverCmd(); cmd != nil {
+		t.Fatalf("toggle redraw should restore dedup, got command %#v", cmd())
 	}
 }
 
@@ -2009,6 +2110,40 @@ func TestKittyLyricChangeDoesNotClearScreen(t *testing.T) {
 	msg := cmd()
 	if fmt.Sprintf("%T", msg) == "tea.clearScreenMsg" {
 		t.Fatalf("kitty lyric changes must not clear screen")
+	}
+}
+
+func TestViewToggleReplacesKittyProgressWithoutBlankFrame(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		CoverProtocol: "kitty",
+		ProgressStyle: "separator",
+	})
+	app.coverImage = testCoverImage(4, 4)
+	app.leftW = 20
+	app.width = 80
+	app.height = 24
+	app.cellPixelW = 10
+	app.cellPixelH = 20
+	app.dur = 1000
+	app.pos = 500
+	app.kittyProgressImageID = kittyProgressImageA
+	app.lastKittyProgressPx = 400
+	app.toggleLeftContent()
+
+	cmd := app.clearScreenAndKittyCoverCmd()
+	if cmd == nil {
+		t.Fatal("view toggle command is nil")
+	}
+	raw, ok := cmd().(tea.RawMsg)
+	if !ok {
+		t.Fatalf("view toggle message = %T, want tea.RawMsg", cmd())
+	}
+	seq := fmt.Sprint(raw.Msg)
+	if strings.HasPrefix(seq, cover.ClearKittyImage(kittyProgressImageA)) {
+		t.Fatalf("view toggle cleared progress before replacement: %q", seq)
+	}
+	if drawAt, progressAt := strings.Index(seq, "i=1"), strings.Index(seq, "i=4"); drawAt >= 0 && progressAt >= 0 && progressAt < drawAt {
+		t.Fatalf("progress overlay drew before cover: %q", seq)
 	}
 }
 

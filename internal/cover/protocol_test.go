@@ -96,13 +96,32 @@ func TestKittyRenderSequenceContainsDeletePositionAndPayload(t *testing.T) {
 	}
 }
 
+func TestKittyRenderPreservesTerminalCursor(t *testing.T) {
+	seq, err := RenderKitty(image.NewRGBA(image.Rect(0, 0, 2, 2)), KittyPlacement{
+		ID: 1, X: 1, Y: 3, Width: 4, Height: 4, Scale: ScaleFit,
+	})
+	if err != nil {
+		t.Fatalf("RenderKitty: %v", err)
+	}
+	if !strings.HasPrefix(seq, "\x1b7") || !strings.HasSuffix(seq, "\x1b8") {
+		t.Fatalf("kitty cover must save and restore cursor: %q", seq)
+	}
+}
+
 func TestKittyProgressLineUsesSinglePixelAndNoDelete(t *testing.T) {
-	seq, err := RenderKittyProgressLine(7, 2, 3, 4, 10, 20, 13, color.RGBA{R: 1, G: 2, B: 3, A: 255})
+	seq, err := RenderKittyProgressLine(
+		7, 2, 3, 4, 10, 20, 13, 1,
+		color.RGBA{R: 1, G: 2, B: 3, A: 255},
+		color.RGBA{R: 4, G: 5, B: 6, A: 255},
+	)
 	if err != nil {
 		t.Fatalf("RenderKittyProgressLine: %v", err)
 	}
 	if strings.Contains(seq, "a=d") {
 		t.Fatalf("progress line must not delete an image before drawing: %q", seq)
+	}
+	if !strings.HasPrefix(seq, "\x1b7") || !strings.HasSuffix(seq, "\x1b8") {
+		t.Fatalf("progress line must save and restore cursor: %q", seq)
 	}
 	if !strings.Contains(seq, "\x1b[3;2H") || !strings.Contains(seq, "i=7,c=4,r=1,z=2;") {
 		t.Fatalf("progress line placement missing: %q", seq)
@@ -121,8 +140,51 @@ func TestKittyProgressLineUsesSinglePixelAndNoDelete(t *testing.T) {
 	if got := color.NRGBAModel.Convert(img.At(12, 10)); got != (color.NRGBA{R: 1, G: 2, B: 3, A: 255}) {
 		t.Fatalf("filled progress pixel = %#v", got)
 	}
-	if got := color.NRGBAModel.Convert(img.At(13, 10)); got.(color.NRGBA).A != 0 {
-		t.Fatalf("unfilled progress pixel alpha = %d, want 0", got.(color.NRGBA).A)
+	if got := color.NRGBAModel.Convert(img.At(13, 10)); got != (color.NRGBA{R: 4, G: 5, B: 6, A: 255}) {
+		t.Fatalf("unfilled progress pixel = %#v", got)
+	}
+}
+
+func TestKittyProgressLineThickness(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		cellH     int
+		thickness int
+		firstRow  int
+		rowCount  int
+	}{
+		{name: "centered three pixels", cellH: 8, thickness: 3, firstRow: 3, rowCount: 3},
+		{name: "clamped to cell height", cellH: 4, thickness: 8, firstRow: 0, rowCount: 4},
+		{name: "minimum one pixel", cellH: 6, thickness: 0, firstRow: 3, rowCount: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seq, err := RenderKittyProgressLine(
+				7, 1, 1, 2, 10, tc.cellH, 7, tc.thickness,
+				color.RGBA{R: 1, G: 2, B: 3, A: 255},
+				color.RGBA{R: 4, G: 5, B: 6, A: 255},
+			)
+			if err != nil {
+				t.Fatalf("RenderKittyProgressLine: %v", err)
+			}
+			raw, err := base64.StdEncoding.DecodeString(extractKittyPayload(seq))
+			if err != nil {
+				t.Fatalf("decode progress payload: %v", err)
+			}
+			img, err := png.Decode(bytes.NewReader(raw))
+			if err != nil {
+				t.Fatalf("decode progress png: %v", err)
+			}
+
+			for y := 0; y < tc.cellH; y++ {
+				wantOpaque := y >= tc.firstRow && y < tc.firstRow+tc.rowCount
+				for _, x := range []int{2, 12} { // Played and remaining segments.
+					alpha := color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA).A
+					if got := alpha > 0; got != wantOpaque {
+						t.Fatalf("pixel (%d,%d) opaque = %t, want %t", x, y, got, wantOpaque)
+					}
+				}
+			}
+		})
 	}
 }
 

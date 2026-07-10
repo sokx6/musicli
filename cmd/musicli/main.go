@@ -72,6 +72,7 @@ func run() error {
 		"theme.name", cfg.Theme.Name,
 		"ui.track_list_max_width", cfg.UI.TrackListMaxWidth,
 		"ui.progress_style", cfg.UI.ProgressStyle,
+		"ui.separator_progress_thickness", cfg.UI.SeparatorProgressThickness,
 		"log.level", cfg.Log.Level,
 		"log.file", cfg.Log.File,
 		"config_path", xdg.ConfigPath(),
@@ -125,18 +126,19 @@ func run() error {
 	}
 
 	app := ui.NewWithOptions(eng, sc, t, logger, ui.Options{
-		TrackListMaxWidth: cfg.UI.TrackListMaxWidth,
-		ProgressStyle:     cfg.UI.ProgressStyle,
-		DisableCover:      !cfg.Cover.Show,
-		CoverScale:        cfg.Cover.Scale,
-		CoverProtocol:     cfg.Cover.Protocol,
-		LibrarySortField:  cfg.Library.SortField,
-		LibrarySortOrder:  cfg.Library.SortOrder,
-		GroupByAlbum:      cfg.Library.GroupByAlbum,
-		PlaybackRepeat:    cfg.Playback.Repeat,
-		PlaybackShuffle:   cfg.Playback.Shuffle,
-		LyricsAlign:       cfg.Lyrics.Align,
-		PlaylistStore:     playlistStore,
+		TrackListMaxWidth:          cfg.UI.TrackListMaxWidth,
+		ProgressStyle:              cfg.UI.ProgressStyle,
+		SeparatorProgressThickness: cfg.UI.SeparatorProgressThickness,
+		DisableCover:               !cfg.Cover.Show,
+		CoverScale:                 cfg.Cover.Scale,
+		CoverProtocol:              cfg.Cover.Protocol,
+		LibrarySortField:           cfg.Library.SortField,
+		LibrarySortOrder:           cfg.Library.SortOrder,
+		GroupByAlbum:               cfg.Library.GroupByAlbum,
+		PlaybackRepeat:             cfg.Playback.Repeat,
+		PlaybackShuffle:            cfg.Playback.Shuffle,
+		LyricsAlign:                cfg.Lyrics.Align,
+		PlaylistStore:              playlistStore,
 		MPRISSink: func(snapshot mpris.Snapshot) {
 			if mprisSvc != nil {
 				mprisSvc.Update(snapshot)

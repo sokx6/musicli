@@ -86,6 +86,7 @@ func RenderKitty(img image.Image, placement KittyPlacement) (string, error) {
 	payload := base64.StdEncoding.EncodeToString(pngBuf.Bytes())
 
 	var b strings.Builder
+	b.WriteString("\x1b7")
 	b.WriteString(ClearKittyImage(placement.ID))
 	b.WriteString(fmt.Sprintf("\x1b[%d;%dH", placement.Y, placement.X))
 
@@ -115,6 +116,7 @@ func RenderKitty(img image.Image, placement KittyPlacement) (string, error) {
 		b.WriteString(remaining)
 		b.WriteString("\x1b\\")
 	}
+	b.WriteString("\x1b8")
 
 	return b.String(), nil
 }
@@ -122,7 +124,7 @@ func RenderKitty(img image.Image, placement KittyPlacement) (string, error) {
 // RenderKittyProgressLine draws a one-pixel line over a terminal row without
 // deleting an existing image. Callers can display a replacement first, then
 // delete the previous image ID to avoid a visible blank frame.
-func RenderKittyProgressLine(id, x, y, width, cellW, cellH, playedPixels int, lineColor color.Color) (string, error) {
+func RenderKittyProgressLine(id, x, y, width, cellW, cellH, playedPixels, thickness int, playedColor, remainingColor color.Color) (string, error) {
 	if id <= 0 || x <= 0 || y <= 0 || width <= 0 {
 		return "", nil
 	}
@@ -139,13 +141,27 @@ func RenderKittyProgressLine(id, x, y, width, cellW, cellH, playedPixels int, li
 	if playedPixels > pixelWidth {
 		playedPixels = pixelWidth
 	}
+	if thickness < 1 {
+		thickness = 1
+	}
+	if thickness > cellH {
+		thickness = cellH
+	}
 
 	line := image.NewRGBA(image.Rect(0, 0, pixelWidth, cellH))
-	if playedPixels > 0 {
-		lineY := cellH / 2
-		c := color.NRGBAModel.Convert(lineColor)
+	// Anchor odd thicknesses on the same center row used by the original 1px
+	// line, so the default remains visually unchanged.
+	startY := cellH/2 - thickness/2
+	remaining := color.NRGBAModel.Convert(remainingColor)
+	for py := startY; py < startY+thickness; py++ {
+		for px := 0; px < pixelWidth; px++ {
+			line.Set(px, py, remaining)
+		}
+	}
+	played := color.NRGBAModel.Convert(playedColor)
+	for py := startY; py < startY+thickness; py++ {
 		for px := 0; px < playedPixels; px++ {
-			line.Set(px, lineY, c)
+			line.Set(px, py, played)
 		}
 	}
 
@@ -158,7 +174,10 @@ func RenderKittyProgressLine(id, x, y, width, cellW, cellH, playedPixels int, li
 		return "", fmt.Errorf("kitty progress line payload too large: %d", len(payload))
 	}
 
-	return fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=T,t=d,f=100,i=%d,c=%d,r=1,z=2;%s\x1b\\", y, x, id, width, payload), nil
+	// Bubble Tea owns the terminal cursor for its diff renderer. Preserve its
+	// position around the absolute placement command so this overlay cannot
+	// redirect the next text update into the player bar.
+	return fmt.Sprintf("\x1b7\x1b[%d;%dH\x1b_Ga=T,t=d,f=100,i=%d,c=%d,r=1,z=2;%s\x1b\\\x1b8", y, x, id, width, payload), nil
 }
 
 func imageCanvas(img image.Image, width, height int, scale ScaleMode, cellW, cellH int) image.Image {

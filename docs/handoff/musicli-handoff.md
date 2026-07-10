@@ -328,6 +328,7 @@ name = "default"
 [ui]
 track_list_max_width = 80  # 0 = unlimited
 progress_style = "bar"     # bar | separator; separator uses a pixel-level kitty overlay when available
+separator_progress_thickness = 1 # 1-8 pixels; kitty separator overlay only
 
 [keybindings]
 # 空 = 用内置默认

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,6 +26,9 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	}
 	if c.UI.ProgressStyle != "bar" {
 		t.Errorf("default progress_style = %q, want bar", c.UI.ProgressStyle)
+	}
+	if c.UI.SeparatorProgressThickness != 1 {
+		t.Errorf("default separator_progress_thickness = %d, want 1", c.UI.SeparatorProgressThickness)
 	}
 	if c.Library.GroupByAlbum {
 		t.Errorf("default group_by_album = true, want false")
@@ -146,6 +150,38 @@ func TestLoadAcceptsSeparatorProgressStyle(t *testing.T) {
 	}
 	if c.UI.ProgressStyle != "separator" {
 		t.Fatalf("progress_style = %q, want separator", c.UI.ProgressStyle)
+	}
+}
+
+func TestLoadSeparatorProgressThickness(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		value        int
+		want         int
+		wantWarnings int
+	}{
+		{name: "minimum", value: 1, want: 1},
+		{name: "maximum", value: 8, want: 8},
+		{name: "below minimum", value: 0, want: 1, wantWarnings: 1},
+		{name: "above maximum", value: 9, want: 1, wantWarnings: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			raw := []byte("[ui]\nseparator_progress_thickness = " + fmt.Sprint(tc.value) + "\n")
+			if err := os.WriteFile(path, raw, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			c, warnings, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := c.UI.SeparatorProgressThickness; got != tc.want {
+				t.Fatalf("separator_progress_thickness = %d, want %d", got, tc.want)
+			}
+			if got := len(warnings); got != tc.wantWarnings {
+				t.Fatalf("warnings = %v, want %d", warnings, tc.wantWarnings)
+			}
+		})
 	}
 }
 
