@@ -315,7 +315,7 @@ func TestListTitleAndDescriptionStylesShareLeftEdge(t *testing.T) {
 	}
 }
 
-func TestToggleFavoritePrefersCurrentPlayingTrack(t *testing.T) {
+func TestToggleFavoriteUsesSelectedTrackWhilePlaying(t *testing.T) {
 	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -332,8 +332,8 @@ func TestToggleFavoritePrefersCurrentPlayingTrack(t *testing.T) {
 
 	app.toggleFavorite()
 
-	if !store.IsFavorite("two.mp3") || store.IsFavorite("one.mp3") {
-		t.Fatalf("favorites did not use current track")
+	if !store.IsFavorite("one.mp3") || store.IsFavorite("two.mp3") {
+		t.Fatalf("favorites = one:%t two:%t, want selected track only", store.IsFavorite("one.mp3"), store.IsFavorite("two.mp3"))
 	}
 }
 
@@ -411,6 +411,59 @@ func TestToggleFavoriteUsesSelectedFilteredTrackWhilePlaying(t *testing.T) {
 
 	if !store.IsFavorite("two.mp3") || store.IsFavorite("one.mp3") {
 		t.Fatalf("favorites = one:%t two:%t, want selected filtered track only", store.IsFavorite("one.mp3"), store.IsFavorite("two.mp3"))
+	}
+}
+
+func TestToggleFavoriteUsesSelectedFilteredAlbumTrack(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "one.mp3", Title: "One", Album: "Album"},
+		{Path: "two.mp3", Title: "Two", Album: "Album"},
+	}})
+	app = m.(*App)
+	app.currentAlbum = 0
+	app.setLibraryView(libraryViewAlbumTracks)
+	app.trackList.SetFilterText("Two")
+
+	app.toggleFavorite()
+
+	if !store.IsFavorite("two.mp3") || store.IsFavorite("one.mp3") {
+		t.Fatalf("favorites = one:%t two:%t, want selected filtered album track only", store.IsFavorite("one.mp3"), store.IsFavorite("two.mp3"))
+	}
+}
+
+func TestUnfavoriteCJKTrackRequestsFullRedraw(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.ToggleFavorite("song.mp3")
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		PlaylistStore: store,
+		CoverProtocol: "halfblock",
+	})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "song.mp3", Title: "乙女解剖"},
+	}})
+	app = m.(*App)
+
+	_, cmd := app.handleKey(tea.KeyPressMsg(tea.Key{Code: 'f', Text: "f"}))
+	if cmd == nil {
+		t.Fatal("unfavorite should request a full redraw")
+	}
+	if msg := cmd(); fmt.Sprintf("%T", msg) != "tea.clearScreenMsg" {
+		t.Fatalf("unfavorite redraw message = %T, want tea.clearScreenMsg", msg)
+	}
+	item, ok := app.trackList.SelectedItem().(trackItem)
+	if !ok {
+		t.Fatalf("selected item = %T, want trackItem", app.trackList.SelectedItem())
+	}
+	if got, want := item.Title(), "乙女解剖"; got != want {
+		t.Fatalf("title after unfavorite = %q, want %q", got, want)
 	}
 }
 

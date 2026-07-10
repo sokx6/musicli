@@ -679,7 +679,9 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, a.keys.ToggleFavorite):
 		fl.Debug("key matched", "key", keyStr, "action", "toggleFavorite")
-		a.toggleFavorite()
+		if a.toggleFavorite() {
+			return a, a.fullScreenRedrawCmd()
+		}
 		return a, nil
 
 	case key.Matches(msg, a.keys.RemoveFromList):
@@ -874,24 +876,19 @@ func (a *App) createPlaylist() {
 	a.errMsg = fmt.Sprintf("created %s", playlist.Name)
 }
 
-func (a *App) toggleFavorite() {
+func (a *App) toggleFavorite() bool {
 	if a.playlists == nil {
-		return
+		return false
 	}
 	idx := a.selectedTrackIndex()
-	// Preserve the active-song shortcut only in the unfiltered main track list.
-	// Search, album, and playlist track views operate on their selected item.
-	if a.libraryView == libraryViewTracks && !a.trackList.IsFiltered() && (a.state == audio.StatePlaying || a.state == audio.StatePaused) {
-		idx = a.current
-	}
 	if idx < 0 || idx >= len(a.tracks) {
-		return
+		return false
 	}
 	track := a.tracks[idx]
 	favorited := a.playlists.ToggleFavorite(track.Path)
 	if err := a.playlists.Save(); err != nil {
 		a.errMsg = fmt.Sprintf("save favorites: %v", err)
-		return
+		return false
 	}
 	a.refreshFavoriteMarkers()
 	if favorited {
@@ -899,6 +896,7 @@ func (a *App) toggleFavorite() {
 	} else {
 		a.errMsg = "removed from Favorites"
 	}
+	return true
 }
 
 func (a *App) refreshFavoriteMarkers() {
@@ -1186,34 +1184,17 @@ func (a *App) backToPlaylistList() bool {
 }
 
 func (a *App) selectedTrackIndex() int {
+	if item, ok := a.trackList.SelectedItem().(trackItem); ok {
+		return a.trackIndex(item.track)
+	}
+
 	idx := a.trackList.Index()
 	switch a.libraryView {
 	case libraryViewTracks:
-		if item, ok := a.trackList.SelectedItem().(trackItem); ok {
-			return a.trackIndex(item.track)
-		}
 		if idx < 0 || idx >= len(a.tracks) {
 			return -1
 		}
 		return idx
-	case libraryViewAlbumTracks:
-		if a.currentAlbum < 0 || a.currentAlbum >= len(a.albums) {
-			return -1
-		}
-		albumTracks := a.albums[a.currentAlbum].Tracks
-		if idx < 0 || idx >= len(albumTracks) {
-			return -1
-		}
-		selected := albumTracks[idx]
-		for i, track := range a.tracks {
-			if track == selected {
-				return i
-			}
-		}
-	case libraryViewPlaylistTracks:
-		if item, ok := a.trackList.SelectedItem().(trackItem); ok {
-			return a.trackIndex(item.track)
-		}
 	}
 	return -1
 }
@@ -1766,6 +1747,17 @@ func (a *App) clearScreenAndKittyCoverCmd() tea.Cmd {
 		return tea.Sequence(a.kittyCoverCmd(), a.kittyProgressCmd())
 	}
 	return tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, a.kittyCoverCmd())
+}
+
+func (a *App) fullScreenRedrawCmd() tea.Cmd {
+	a.lastKittyCover = ""
+	a.kittyCoverDrawn = false
+	a.lastKittyFingerprint = ""
+	a.lastKittyProgressPx = -1
+	a.kittyProgressImageID = 0
+
+	clear := func() tea.Msg { return tea.ClearScreen() }
+	return tea.Sequence(clear, a.kittyCoverCmd(), a.kittyProgressCmd())
 }
 
 func (a *App) lyricChangeCmd() tea.Cmd {
