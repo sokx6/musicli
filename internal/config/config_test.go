@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -44,6 +45,9 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	}
 	if c.Lyrics.Align != "left" {
 		t.Errorf("default lyrics align = %q, want left", c.Lyrics.Align)
+	}
+	if c.Lyrics.HighlightMode != "played" {
+		t.Errorf("default lyrics highlight_mode = %q, want played", c.Lyrics.HighlightMode)
 	}
 	if !c.DBus.MPRIS {
 		t.Errorf("default dbus.mpris = false, want true")
@@ -223,6 +227,23 @@ align = "center"
 	}
 	if c.Lyrics.Align != "center" {
 		t.Fatalf("lyrics align = %q, want center", c.Lyrics.Align)
+	}
+}
+
+func TestLoadRejectsInvalidLyricHighlightMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[lyrics]\nhighlight_mode = \"future\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Lyrics.HighlightMode != "played" {
+		t.Fatalf("lyrics highlight_mode = %q, want played", c.Lyrics.HighlightMode)
+	}
+	if !strings.Contains(strings.Join(warnings, "\n"), "lyrics.highlight_mode") {
+		t.Fatalf("warnings = %v, want lyrics.highlight_mode warning", warnings)
 	}
 }
 

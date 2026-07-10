@@ -22,6 +22,7 @@ auto_fetch = false   # auto-crawl lyrics when local file missing (phase 12)
 sources = ["lrclib", "qq", "netease", "kugou"]
 save_dir = ""        # empty = ~/.cache/musicli/lyrics
 align = "left"       # left | center | right
+highlight_mode = "played" # played | current; played includes every word that has started
 
 [cover]
 show = true

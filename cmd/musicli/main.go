@@ -138,6 +138,7 @@ func run() error {
 		PlaybackRepeat:             cfg.Playback.Repeat,
 		PlaybackShuffle:            cfg.Playback.Shuffle,
 		LyricsAlign:                cfg.Lyrics.Align,
+		LyricsHighlightMode:        cfg.Lyrics.HighlightMode,
 		PlaylistStore:              playlistStore,
 		MPRISSink: func(snapshot mpris.Snapshot) {
 			if mprisSvc != nil {

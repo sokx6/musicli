@@ -242,6 +242,7 @@ ui → {audio, library, playlist, lyrics, cover, theme}  # 唯一依赖 bubblete
 - `a` 切换歌词对齐：左对齐 → 居中 → 右对齐 → 左对齐
 - 歌词对齐只作用在歌词 pane 内；封面+歌词同时显示时，歌词不会进入封面区域
 - `[lyrics] align = "left" | "center" | "right"` 控制启动时默认歌词对齐，`a` 只切换当前会话
+- `[lyrics] highlight_mode = "played" | "current"` 控制逐字歌词高亮范围，默认 `played`；`h` 在两种模式间切换，当前字开始即视为已播放
 - CJK 逐字高亮当前行仍保持定宽渲染，避免宽字符高亮状态变化时产生偏移
 
 ### 阶段 8.5: 列表/filter 稳定化 + 大目录启动性能

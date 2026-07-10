@@ -1438,6 +1438,38 @@ func TestConfiguredLyricAlignInitializesMode(t *testing.T) {
 	}
 }
 
+func TestConfiguredLyricHighlightModeInitializesMode(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		LyricsHighlightMode: "current",
+	})
+	if app.lyricHighlight != lyricHighlightCurrent {
+		t.Fatalf("configured lyric highlight = %v, want current", app.lyricHighlight)
+	}
+
+	app = NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		LyricsHighlightMode: "invalid",
+	})
+	if app.lyricHighlight != lyricHighlightPlayed {
+		t.Fatalf("invalid lyric highlight = %v, want played", app.lyricHighlight)
+	}
+}
+
+func TestToggleLyricHighlightCyclesModes(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	if app.lyricHighlight != lyricHighlightPlayed {
+		t.Fatalf("initial lyric highlight = %v, want played", app.lyricHighlight)
+	}
+
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Text: "h", Code: 'h'}))
+	if app.lyricHighlight != lyricHighlightCurrent {
+		t.Fatalf("lyric highlight after h = %v, want current", app.lyricHighlight)
+	}
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Text: "h", Code: 'h'}))
+	if app.lyricHighlight != lyricHighlightPlayed {
+		t.Fatalf("lyric highlight after second h = %v, want played", app.lyricHighlight)
+	}
+}
+
 func TestLyricAlignKeyTogglesMode(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 
@@ -1771,6 +1803,42 @@ func TestRenderCurrentLyricLineKeepsWideTextStable(t *testing.T) {
 		if got := strings.Count(rendered, "\x1b["); got > 4 {
 			t.Fatalf("word highlight should render at most three styled runs, got %d ANSI sequences: %q", got/2, rendered)
 		}
+	}
+}
+
+func TestRenderCurrentLyricLineHighlightsPlayedWordsByDefault(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.pos = 2000
+	line := lyrics.Line{Words: []lyrics.Word{
+		{Text: "one", StartMs: 1000, EndMs: 2000},
+		{Text: "two", StartMs: 2000, EndMs: 3000},
+		{Text: "three", StartMs: 3000, EndMs: 4000},
+	}}
+	accent := ansi.NewStyle().ForegroundColor(app.theme.Accent)
+	muted := ansi.NewStyle().ForegroundColor(app.theme.Muted)
+	want := padCellText(accent.String()+"onetwo"+muted.String()+"three"+ansi.ResetStyle, 20)
+
+	if got := app.renderCurrentLyricLine(line, 20); got != want {
+		t.Fatalf("played highlight rendering:\ngot  %q\nwant %q", got, want)
+	}
+}
+
+func TestRenderCurrentLyricLineCanHighlightOnlyCurrentWord(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		LyricsHighlightMode: "current",
+	})
+	app.pos = 2000
+	line := lyrics.Line{Words: []lyrics.Word{
+		{Text: "one", StartMs: 1000, EndMs: 2000},
+		{Text: "two", StartMs: 2000, EndMs: 3000},
+		{Text: "three", StartMs: 3000, EndMs: 4000},
+	}}
+	accent := ansi.NewStyle().ForegroundColor(app.theme.Accent)
+	muted := ansi.NewStyle().ForegroundColor(app.theme.Muted)
+	want := padCellText(muted.String()+"one"+accent.String()+"two"+muted.String()+"three"+ansi.ResetStyle, 20)
+
+	if got := app.renderCurrentLyricLine(line, 20); got != want {
+		t.Fatalf("current highlight rendering:\ngot  %q\nwant %q", got, want)
 	}
 }
 

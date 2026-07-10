@@ -124,6 +124,7 @@ type Options struct {
 	PlaybackRepeat             string
 	PlaybackShuffle            bool
 	LyricsAlign                string
+	LyricsHighlightMode        string
 	PlaylistStore              *playlist.Store
 	MPRISSink                  func(mpris.Snapshot)
 }
@@ -149,6 +150,13 @@ const (
 	lyricAlignLeft lyricAlignMode = iota
 	lyricAlignCenter
 	lyricAlignRight
+)
+
+type lyricHighlightMode int
+
+const (
+	lyricHighlightPlayed lyricHighlightMode = iota
+	lyricHighlightCurrent
 )
 
 type libraryViewMode int
@@ -209,6 +217,7 @@ type App struct {
 	playlistNameInput    textinput.Model
 	coverScale           coverScaleMode
 	lyricAlign           lyricAlignMode
+	lyricHighlight       lyricHighlightMode
 	coverProtocol        string
 	cellPixelW           int
 	cellPixelH           int
@@ -256,6 +265,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 	delegate := newListDelegate(t)
 	coverScale := coverScaleFromString(opts.CoverScale)
 	lyricAlign := lyricAlignFromString(opts.LyricsAlign)
+	lyricHighlight := lyricHighlightFromString(opts.LyricsHighlightMode)
 	coverProtocol := cover.SelectProtocol(opts.CoverProtocol, os.Getenv)
 
 	trackList := list.New([]list.Item{}, delegate, 40, 20)
@@ -296,6 +306,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 		currentAlbum:        -1,
 		coverScale:          coverScale,
 		lyricAlign:          lyricAlign,
+		lyricHighlight:      lyricHighlight,
 		coverProtocol:       coverProtocol,
 		playlists:           opts.PlaylistStore,
 		playlistNameInput:   playlistNameInput,
@@ -734,6 +745,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.ToggleLyricAlign):
 		fl.Debug("key matched", "key", keyStr, "action", "toggleLyricAlign")
 		a.toggleLyricAlign()
+		return a, nil
+
+	case key.Matches(msg, a.keys.ToggleLyricHighlight):
+		fl.Debug("key matched", "key", keyStr, "action", "toggleLyricHighlight")
+		a.toggleLyricHighlight()
 		return a, nil
 
 	case key.Matches(msg, a.keys.ToggleView):
@@ -1606,6 +1622,14 @@ func (a *App) toggleLyricAlign() {
 	}
 }
 
+func (a *App) toggleLyricHighlight() {
+	if a.lyricHighlight == lyricHighlightPlayed {
+		a.lyricHighlight = lyricHighlightCurrent
+		return
+	}
+	a.lyricHighlight = lyricHighlightPlayed
+}
+
 func lyricAlignFromString(s string) lyricAlignMode {
 	switch s {
 	case "center":
@@ -1615,6 +1639,13 @@ func lyricAlignFromString(s string) lyricAlignMode {
 	default:
 		return lyricAlignLeft
 	}
+}
+
+func lyricHighlightFromString(s string) lyricHighlightMode {
+	if s == "current" {
+		return lyricHighlightCurrent
+	}
+	return lyricHighlightPlayed
 }
 
 func coverScaleFromString(s string) coverScaleMode {
@@ -2334,13 +2365,20 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 		remaining -= ansi.StringWidth(clipped)
 		return strings.HasSuffix(clipped, "…")
 	}
-	if writeRun(muted, prefix) {
-		b.WriteString(ansi.ResetStyle)
-		return padCellText(b.String(), width)
-	}
-	if writeRun(accent, active) {
-		b.WriteString(ansi.ResetStyle)
-		return padCellText(b.String(), width)
+	if a.lyricHighlight == lyricHighlightPlayed {
+		if writeRun(accent, prefix+active) {
+			b.WriteString(ansi.ResetStyle)
+			return padCellText(b.String(), width)
+		}
+	} else {
+		if writeRun(muted, prefix) {
+			b.WriteString(ansi.ResetStyle)
+			return padCellText(b.String(), width)
+		}
+		if writeRun(accent, active) {
+			b.WriteString(ansi.ResetStyle)
+			return padCellText(b.String(), width)
+		}
 	}
 	writeRun(muted, suffix)
 	b.WriteString(ansi.ResetStyle)
@@ -2647,9 +2685,9 @@ func (a *App) renderPlayerHelpLine(width int) string {
 		width = 1
 	}
 	candidates := []string{
-		"q quit  ⏎ play  ␣ pause  n/b next/prev  p playlists  f favorite  m add  r repeat  s shuffle  a align  v view  c scale  ←→ seek  / filter",
-		"q quit  ⏎ play  ␣ pause  n/b  r repeat  s shuffle  a align",
-		"q  ⏎  ␣  n/b  r  s  a",
+		"q quit  ⏎ play  ␣ pause  n/b next/prev  p playlists  f favorite  m add  r repeat  s shuffle  a align  h highlight  v view  c scale  ←→ seek  / filter",
+		"q quit  ⏎ play  ␣ pause  n/b  r repeat  s shuffle  a align  h highlight",
+		"q  ⏎  ␣  n/b  r  s  a  h",
 		"q ⏎ ␣",
 		"",
 	}
