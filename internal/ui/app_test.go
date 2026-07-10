@@ -1823,6 +1823,46 @@ func TestRenderCurrentLyricLineHighlightsPlayedWordsByDefault(t *testing.T) {
 	}
 }
 
+func TestRenderCurrentLyricLineKeepsPlayedWordsHighlightedAcrossTimingGap(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.pos = 1150
+	line := lyrics.Line{Words: []lyrics.Word{
+		{Text: "one", StartMs: 1000, EndMs: 1100},
+		{Text: "two", StartMs: 1200, EndMs: 1300},
+		{Text: "three", StartMs: 1300, EndMs: 1400},
+	}}
+	accent := ansi.NewStyle().ForegroundColor(app.theme.Accent)
+	muted := ansi.NewStyle().ForegroundColor(app.theme.Muted)
+	want := padCellText(accent.String()+"one"+muted.String()+"twothree"+ansi.ResetStyle, 20)
+
+	if got := app.renderCurrentLyricLine(line, 20); got != want {
+		t.Fatalf("played highlight during timing gap:\ngot  %q\nwant %q", got, want)
+	}
+}
+
+func TestLyricRenderStateKeepsPlayedHighlightAcrossTimingGap(t *testing.T) {
+	line := lyrics.Line{StartMs: 1000, EndMs: 1400, Words: []lyrics.Word{
+		{Text: "one", StartMs: 1000, EndMs: 1100},
+		{Text: "two", StartMs: 1200, EndMs: 1300},
+	}}
+
+	played := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	played.lyric = &lyrics.Lyric{Lines: []lyrics.Line{line}}
+	played.pos = 1150
+	if got := played.currentLyricRenderState().word; got != 0 {
+		t.Fatalf("played gap word = %d, want 0", got)
+	}
+
+	current := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		LyricsHighlightMode: "current",
+	})
+	current.lyric = &lyrics.Lyric{Lines: []lyrics.Line{line}}
+	current.pos = 1150
+	if got := current.currentLyricRenderState().word; got != -1 {
+		t.Fatalf("current gap word = %d, want -1", got)
+	}
+}
+
 func TestRenderCurrentLyricLineCanHighlightOnlyCurrentWord(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
 		LyricsHighlightMode: "current",

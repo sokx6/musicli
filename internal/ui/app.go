@@ -2332,13 +2332,7 @@ func (a *App) renderCurrentLyricLine(line lyrics.Line, width int) string {
 		return padCellText(accent.Styled(text), width)
 	}
 
-	current := -1
-	for i, word := range line.Words {
-		if wordActiveAt(word, i == len(line.Words)-1, a.pos) {
-			current = i
-			break
-		}
-	}
+	current := a.lyricHighlightWordIndex(line)
 	if current < 0 {
 		return padCellText(muted.Styled(truncateCellText(line.Text, width)), width)
 	}
@@ -2440,12 +2434,29 @@ func (a *App) currentLyricRenderState() lyricRenderState {
 	if lineIdx < 0 || lineIdx >= len(a.lyric.Lines) {
 		return lyricRenderState{line: -1, word: -1}
 	}
-	for i, word := range a.lyric.Lines[lineIdx].Words {
-		if wordActiveAt(word, i == len(a.lyric.Lines[lineIdx].Words)-1, a.pos) {
-			return lyricRenderState{line: lineIdx, word: i}
+	return lyricRenderState{
+		line: lineIdx,
+		word: a.lyricHighlightWordIndex(a.lyric.Lines[lineIdx]),
+	}
+}
+
+// lyricHighlightWordIndex returns the word used for the current render mode.
+// In played mode, a timing gap keeps the most recently started word lit.
+func (a *App) lyricHighlightWordIndex(line lyrics.Line) int {
+	lastStarted := -1
+	for i, word := range line.Words {
+		if word.StartMs > a.pos {
+			break
+		}
+		lastStarted = i
+		if wordActiveAt(word, i == len(line.Words)-1, a.pos) {
+			return i
 		}
 	}
-	return lyricRenderState{line: lineIdx, word: -1}
+	if a.lyricHighlight == lyricHighlightPlayed {
+		return lastStarted
+	}
+	return -1
 }
 
 func wordActiveAt(word lyrics.Word, final bool, pos int) bool {
