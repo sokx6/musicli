@@ -81,7 +81,7 @@ func newListStyles(t *theme.Theme) list.DefaultItemStyles {
 func newListComponentStyles(t *theme.Theme) list.Styles {
 	s := list.DefaultStyles(t.Mode == theme.ModeDark)
 	// Overwrite with fresh styles (no Background) to kill default colored bars.
-	s.TitleBar = lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
+	s.TitleBar = lipgloss.NewStyle().Foreground(t.Accent).Bold(true).PaddingBottom(1)
 	s.Title = lipgloss.NewStyle().Foreground(t.Accent).Bold(true).Padding(0, 0, 0, 1)
 	s.Spinner = lipgloss.NewStyle().Foreground(t.Accent)
 	s.StatusBar = lipgloss.NewStyle().Foreground(t.Muted)

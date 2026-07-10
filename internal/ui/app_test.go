@@ -47,6 +47,25 @@ func TestTrackListWidthFitsContentAndStaysRightAligned(t *testing.T) {
 	}
 }
 
+func TestTrackListTitleHasBlankLineBeforeItems(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	m, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	app = m.(*App)
+	m, _ = app.Update(TracksLoadedMsg{Tracks: []*library.Track{{Title: "First"}}})
+	app = m.(*App)
+
+	lines := strings.Split(ansi.Strip(app.trackList.View()), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("track list rendered %d lines, want title, gap, and item", len(lines))
+	}
+	if strings.TrimSpace(lines[1]) != "" {
+		t.Fatalf("line after title = %q, want blank:\n%s", lines[1], strings.Join(lines[:min(5, len(lines))], "\n"))
+	}
+	if !strings.Contains(lines[2], "First") {
+		t.Fatalf("first item line = %q, want First", lines[2])
+	}
+}
+
 func TestFilteredPlaybackKeepsSelectionWithinVisibleItems(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	m, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
