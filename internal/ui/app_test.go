@@ -266,7 +266,7 @@ func TestFavoriteTrackItemHasStarMarker(t *testing.T) {
 	if !ok {
 		t.Fatalf("selected item = %T, want trackItem", app.trackList.SelectedItem())
 	}
-	if !strings.HasPrefix(item.Title(), "★ ") {
+	if !strings.HasPrefix(item.Title(), "* ") {
 		t.Fatalf("favorite title = %q, want star marker", item.Title())
 	}
 }
@@ -279,8 +279,11 @@ func TestTrackItemFavoriteMarkerOffsetsOnlyFavoriteTitle(t *testing.T) {
 	if got, want := plain.Title(), "Favorite"; got != want {
 		t.Fatalf("plain title = %q, want %q", got, want)
 	}
-	if got, want := favorite.Title(), "★ Favorite"; got != want {
+	if got, want := favorite.Title(), "* Favorite"; got != want {
 		t.Fatalf("favorite title = %q, want %q", got, want)
+	}
+	if got, want := ansi.StringWidth(favoriteMarker), len(favoriteMarker); got != want {
+		t.Fatalf("favorite marker width = %d, want fixed ASCII width %d", got, want)
 	}
 }
 
@@ -387,7 +390,7 @@ func TestToggleFavoriteKeepsFilteredTrackList(t *testing.T) {
 		t.Fatalf("filter state changed after favoriting")
 	}
 	item, ok := app.trackList.SelectedItem().(trackItem)
-	if !ok || !strings.HasPrefix(item.Title(), "★ ") {
+	if !ok || !strings.HasPrefix(item.Title(), "* ") {
 		t.Fatalf("filtered favorite item = %#v, want star marker", app.trackList.SelectedItem())
 	}
 }
@@ -436,7 +439,7 @@ func TestToggleFavoriteUsesSelectedFilteredAlbumTrack(t *testing.T) {
 	}
 }
 
-func TestUnfavoriteCJKTrackRequestsFullRedraw(t *testing.T) {
+func TestUnfavoriteCJKTrackDoesNotClearScreen(t *testing.T) {
 	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -452,11 +455,8 @@ func TestUnfavoriteCJKTrackRequestsFullRedraw(t *testing.T) {
 	app = m.(*App)
 
 	_, cmd := app.handleKey(tea.KeyPressMsg(tea.Key{Code: 'f', Text: "f"}))
-	if cmd == nil {
-		t.Fatal("unfavorite should request a full redraw")
-	}
-	if msg := cmd(); fmt.Sprintf("%T", msg) != "tea.clearScreenMsg" {
-		t.Fatalf("unfavorite redraw message = %T, want tea.clearScreenMsg", msg)
+	if cmd != nil {
+		t.Fatalf("unfavorite command = %T, want nil to preserve image overlays", cmd())
 	}
 	item, ok := app.trackList.SelectedItem().(trackItem)
 	if !ok {
