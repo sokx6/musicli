@@ -840,6 +840,16 @@ func (a *App) selectCurrentInLibraryView() {
 	}
 	switch a.libraryView {
 	case libraryViewTracks:
+		if a.trackList.IsFiltered() {
+			currentTrack := a.tracks[a.current]
+			for i, item := range a.trackList.VisibleItems() {
+				if track, ok := item.(trackItem); ok && track.track == currentTrack {
+					a.trackList.Select(i)
+					return
+				}
+			}
+			return
+		}
 		a.trackList.Select(a.current)
 	case libraryViewAlbumTracks:
 		if a.currentAlbum < 0 || a.currentAlbum >= len(a.albums) {

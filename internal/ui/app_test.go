@@ -45,6 +45,29 @@ func TestTrackListWidthFitsContentAndStaysRightAligned(t *testing.T) {
 	}
 }
 
+func TestFilteredPlaybackKeepsSelectionWithinVisibleItems(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	m, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	app = m.(*App)
+	tracks := make([]*library.Track, 27)
+	for i := range tracks {
+		tracks[i] = &library.Track{Title: fmt.Sprintf("Other %02d", i)}
+	}
+	tracks[26].Title = "Needle"
+	m, _ = app.Update(TracksLoadedMsg{Tracks: tracks})
+	app = m.(*App)
+	app.trackList.SetFilterText("Needle")
+	app.current = 26
+	app.selectCurrentInLibraryView()
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("track list view panicked after filtered playback: %v", r)
+		}
+	}()
+	_ = app.View()
+}
+
 func TestTrackListWidthShrinksToKeepLeftPaneWhenContentIsTooWide(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 
