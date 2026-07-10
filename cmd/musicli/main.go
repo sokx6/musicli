@@ -80,6 +80,8 @@ func run() error {
 	scanPath := "."
 	if len(os.Args) > 1 {
 		scanPath = os.Args[1]
+	} else if cfg.Library.MusicDir != "" {
+		scanPath = cfg.Library.MusicDir
 	}
 	fl.Info("scan path resolved", "path", scanPath)
 
@@ -149,7 +151,7 @@ func run() error {
 	// Kick off the library scan in a goroutine; deliver results via Send.
 	go func() {
 		fl.Info("scan goroutine launched", "path", scanPath)
-		tracks, err := sc.ScanPath(scanPath)
+		tracks, err := sc.ScanPathCached(scanPath, xdg.LibraryIndexPath(), cfg.Library.IndexCache)
 		if err != nil {
 			p.Send(ui.ScanErrMsg{Err: err})
 			return

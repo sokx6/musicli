@@ -44,6 +44,8 @@ type Library struct {
 	SortField    string `toml:"sort_field"`
 	SortOrder    string `toml:"sort_order"`
 	GroupByAlbum bool   `toml:"group_by_album"`
+	MusicDir     string `toml:"music_dir"`
+	IndexCache   bool   `toml:"index_cache"`
 }
 
 type Lyrics struct {
@@ -203,6 +205,9 @@ func (c *Config) applyDefaults(warnings *[]string) {
 
 // expandPaths resolves ~ and empty path placeholders against XDG dirs.
 func (c *Config) expandPaths() {
+	if c.Library.MusicDir != "" {
+		c.Library.MusicDir = expandHome(c.Library.MusicDir)
+	}
 	if c.Log.File == "" {
 		c.Log.File = c.Dirs.LogPath()
 	} else {

@@ -252,6 +252,12 @@ ui → {audio, library, playlist, lyrics, cover, theme}  # 唯一依赖 bubblete
 - 启动扫描移除逐文件 `ffprobe` duration probe：大目录下不再为每个音频文件启动外部进程；当前播放曲仍由 audio engine 异步探测时长
 - 回归测试覆盖 filter 单行显示、完整 App.View 渲染、filter reset 后 queue 来源、以及 library 扫描不调用 `ffprobe`
 
+### 阶段 8.6: 音乐目录索引缓存 + filter 播放映射
+- `[library] music_dir` 可配置默认音乐目录；命令行传入路径时优先使用命令行路径
+- `[library] index_cache = true` 默认启用持久化索引，保存在 `~/.local/state/musicli/library-index.json`
+- 启动时仍轻量遍历目录以发现变化，但路径、文件大小和修改时间未变的音频文件直接复用缓存 tag；新增、删除、重命名或修改文件会自动更新索引
+- filter 结果播放通过当前选中的实际 `trackItem` 映射回全库，避免把过滤结果索引误当作全库索引而播放错歌
+
 ## 7. 日志系统
 
 ### 格式
@@ -294,6 +300,8 @@ shuffle = false
 sort_field = "title" # title | artist | album | size | year
 sort_order = "asc"   # asc | desc
 group_by_album = true
+music_dir = ""       # empty = command-line path, then current directory
+index_cache = true    # reuse unchanged metadata from ~/.local/state/musicli/library-index.json
 
 [lyrics]
 auto_fetch = false

@@ -26,6 +26,12 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	if c.Library.GroupByAlbum {
 		t.Errorf("default group_by_album = true, want false")
 	}
+	if c.Library.MusicDir != "" {
+		t.Errorf("default music_dir = %q, want empty", c.Library.MusicDir)
+	}
+	if !c.Library.IndexCache {
+		t.Errorf("default index_cache = false, want true")
+	}
 	if c.Cover.Scale != "fit" {
 		t.Errorf("default cover scale = %q, want fit", c.Cover.Scale)
 	}
@@ -116,6 +122,25 @@ level = "wat"
 	}
 	if len(warnings) < 9 {
 		t.Errorf("expected >=9 warnings, got %d: %v", len(warnings), warnings)
+	}
+}
+
+func TestLoadExpandsLibraryMusicDir(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("[library]\nmusic_dir = \"~/Music\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, _, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := c.Library.MusicDir, filepath.Join(home, "Music"); got != want {
+		t.Fatalf("music_dir = %q, want %q", got, want)
 	}
 }
 

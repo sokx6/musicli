@@ -205,6 +205,21 @@ func TestTracksLoadedAppliesConfiguredSort(t *testing.T) {
 	}
 }
 
+func TestSelectedTrackIndexUsesSelectedFilteredItem(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Title: "Alpha"},
+		{Title: "Beta"},
+		{Title: "Gamma"},
+	}})
+	app = m.(*App)
+	app.trackList.SetFilterText("Gamma")
+
+	if got := app.selectedTrackIndex(); got != 2 {
+		t.Fatalf("selected filtered track index = %d, want 2", got)
+	}
+}
+
 func TestPlaybackOptionsAreStored(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
 		PlaybackRepeat:  "one",

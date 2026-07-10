@@ -140,3 +140,68 @@ func TestScanPathAvoidsPerFileDebugLogNoise(t *testing.T) {
 		t.Fatalf("scan log missing aggregate scan messages:\n%s", text)
 	}
 }
+
+func TestScanPathCachedUpdatesIndexWhenMusicFilesChange(t *testing.T) {
+	dir := t.TempDir()
+	musicDir := filepath.Join(dir, "music")
+	if err := os.Mkdir(musicDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	first := filepath.Join(musicDir, "first.mp3")
+	if err := os.WriteFile(first, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	indexPath := filepath.Join(dir, "library-index.json")
+	s := NewScanner(log.Discard())
+
+	tracks, err := s.ScanPathCached(musicDir, indexPath, true)
+	if err != nil {
+		t.Fatalf("first ScanPathCached: %v", err)
+	}
+	if len(tracks) != 1 || tracks[0].Title != "first" {
+		t.Fatalf("first tracks = %#v, want first.mp3", tracks)
+	}
+	processCalls := 0
+	originalProcess := s.processPath
+	s.processPath = func(path string) (*Track, bool) {
+		processCalls++
+		return originalProcess(path)
+	}
+	tracks, err = s.ScanPathCached(musicDir, indexPath, true)
+	if err != nil {
+		t.Fatalf("unchanged ScanPathCached: %v", err)
+	}
+	if len(tracks) != 1 || tracks[0].Title != "first" {
+		t.Fatalf("cached tracks = %#v, want first.mp3", tracks)
+	}
+	if processCalls != 0 {
+		t.Fatalf("unchanged scan processed %d files, want 0", processCalls)
+	}
+
+	second := filepath.Join(musicDir, "second.mp3")
+	if err := os.Rename(first, second); err != nil {
+		t.Fatal(err)
+	}
+	tracks, err = s.ScanPathCached(musicDir, indexPath, true)
+	if err != nil {
+		t.Fatalf("second ScanPathCached: %v", err)
+	}
+	if len(tracks) != 1 || tracks[0].Title != "second" || tracks[0].Path != second {
+		t.Fatalf("updated tracks = %#v, want second.mp3", tracks)
+	}
+	if processCalls != 1 {
+		t.Fatalf("changed scan processed %d files, want 1", processCalls)
+	}
+
+	idx, err := loadLibraryIndex(indexPath)
+	if err != nil {
+		t.Fatalf("loadLibraryIndex: %v", err)
+	}
+	root := idx.Roots[filepath.Clean(musicDir)]
+	if len(root.Entries) != 1 {
+		t.Fatalf("index entries = %d, want 1", len(root.Entries))
+	}
+	if _, ok := root.Entries[second]; !ok {
+		t.Fatalf("index missing %q", second)
+	}
+}

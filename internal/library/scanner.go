@@ -12,8 +12,9 @@ import (
 
 // Scanner walks file-system paths and builds Track records.
 type Scanner struct {
-	log  *log.Logger
-	exts map[string]bool
+	log         *log.Logger
+	exts        map[string]bool
+	processPath func(string) (*Track, bool)
 }
 
 // NewScanner creates a Scanner ready to walk audio files.
@@ -29,6 +30,7 @@ func NewScanner(lg *log.Logger) *Scanner {
 	for _, e := range extList {
 		s.exts[e] = true
 	}
+	s.processPath = s.processFile
 	fl := lg.WithModule("library").WithFunc("NewScanner")
 	fl.Debug("scanner created", "extensions", strings.Join(extList, ","))
 	return s
@@ -48,7 +50,7 @@ func (s *Scanner) ScanPath(path string) ([]*Track, error) {
 	totalFiles := 0
 	if !info.IsDir() {
 		totalFiles++
-		if t, ok := s.processFile(path); ok {
+		if t, ok := s.process(path); ok {
 			tracks = append(tracks, t)
 		}
 		fl.Debug("scan completed", "path", path, "total_files", totalFiles, "total_tracks", len(tracks), "duration_ms", 0)
@@ -65,7 +67,7 @@ func (s *Scanner) ScanPath(path string) ([]*Track, error) {
 			return nil
 		}
 		totalFiles++
-		if t, ok := s.processFile(p); ok {
+		if t, ok := s.process(p); ok {
 			tracks = append(tracks, t)
 		}
 		return nil
@@ -81,6 +83,89 @@ func (s *Scanner) ScanPath(path string) ([]*Track, error) {
 		"duration_ms", dur.Milliseconds(),
 	)
 	return tracks, nil
+}
+
+// ScanPathCached scans path while reusing metadata for unchanged audio files.
+// indexPath is updated atomically after a successful scan. When cache is false,
+// it behaves like ScanPath and does not read or write an index.
+func (s *Scanner) ScanPathCached(path, indexPath string, cache bool) ([]*Track, error) {
+	if !cache || indexPath == "" {
+		return s.ScanPath(path)
+	}
+
+	fl := s.log.WithModule("library").WithFunc("ScanPathCached")
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat %q: %w", path, err)
+	}
+	if !info.IsDir() {
+		return s.ScanPath(path)
+	}
+
+	rootPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve library root %q: %w", path, err)
+	}
+	rootPath = filepath.Clean(rootPath)
+	idx, err := loadLibraryIndex(indexPath)
+	if err != nil {
+		fl.Warn("library index ignored", "path", indexPath, "err", err)
+		idx = libraryIndex{Version: libraryIndexVersion, Roots: make(map[string]libraryIndexRoot)}
+	}
+	previous := idx.Roots[rootPath]
+	entries := make(map[string]libraryIndexEntry)
+	tracks := make([]*Track, 0, len(previous.Entries))
+	reused := 0
+	refreshed := 0
+
+	walkErr := filepath.WalkDir(rootPath, func(filePath string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			fl.Warn("walk error", "path", filePath, "err", walkErr)
+			return nil
+		}
+		if d.IsDir() || !s.isAudio(filePath) {
+			return nil
+		}
+		fileInfo, err := d.Info()
+		if err != nil {
+			fl.Warn("file info failed", "path", filePath, "err", err)
+			return nil
+		}
+		if cached, ok := previous.Entries[filePath]; ok && cached.Track != nil &&
+			cached.Size == fileInfo.Size() && cached.ModTime == fileInfo.ModTime().UnixNano() {
+			track := *cached.Track
+			tracks = append(tracks, &track)
+			entries[filePath] = cached
+			reused++
+			return nil
+		}
+		track, ok := s.process(filePath)
+		if !ok {
+			return nil
+		}
+		tracks = append(tracks, track)
+		entries[filePath] = libraryIndexEntry{
+			Size:    fileInfo.Size(),
+			ModTime: fileInfo.ModTime().UnixNano(),
+			Track:   track,
+		}
+		refreshed++
+		return nil
+	})
+	if walkErr != nil {
+		return tracks, fmt.Errorf("walk %q: %w", rootPath, walkErr)
+	}
+
+	idx.Roots[rootPath] = libraryIndexRoot{Entries: entries}
+	if err := saveLibraryIndex(indexPath, idx); err != nil {
+		fl.Warn("library index save failed", "path", indexPath, "err", err)
+	}
+	fl.Info("cached scan completed", "path", rootPath, "tracks", len(tracks), "reused", reused, "refreshed", refreshed)
+	return tracks, nil
+}
+
+func (s *Scanner) process(path string) (*Track, bool) {
+	return s.processPath(path)
 }
 
 // processFile attempts to read tags for a single path.

@@ -32,6 +32,9 @@ func (d Dirs) LogPath() string { return filepath.Join(d.StateDir, "musicli.log")
 // PlaylistPath returns the playlists.json path.
 func (d Dirs) PlaylistPath() string { return filepath.Join(d.StateDir, "playlists.json") }
 
+// LibraryIndexPath returns the persistent library metadata index path.
+func (d Dirs) LibraryIndexPath() string { return filepath.Join(d.StateDir, "library-index.json") }
+
 // LyricsDir returns the fetched-lyrics cache dir.
 func (d Dirs) LyricsDir() string { return filepath.Join(d.CacheDir, "lyrics") }
 

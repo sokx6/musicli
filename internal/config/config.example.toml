@@ -14,6 +14,8 @@ shuffle = false
 sort_field = "title" # title | artist | album | size | year
 sort_order = "asc"   # asc | desc
 group_by_album = false
+music_dir = ""       # empty = command-line path, then current directory
+index_cache = true    # reuse unchanged library metadata between launches
 
 [lyrics]
 auto_fetch = false   # auto-crawl lyrics when local file missing (phase 12)

@@ -809,6 +809,9 @@ func (a *App) selectedTrackIndex() int {
 	idx := a.trackList.Index()
 	switch a.libraryView {
 	case libraryViewTracks:
+		if item, ok := a.trackList.SelectedItem().(trackItem); ok {
+			return a.trackIndex(item.track)
+		}
 		if idx < 0 || idx >= len(a.tracks) {
 			return -1
 		}
