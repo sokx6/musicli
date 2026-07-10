@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -21,6 +22,7 @@ import (
 	"github.com/locxl/musicli/internal/log"
 	"github.com/locxl/musicli/internal/lyrics"
 	"github.com/locxl/musicli/internal/mpris"
+	"github.com/locxl/musicli/internal/playlist"
 	"github.com/locxl/musicli/internal/theme"
 )
 
@@ -225,6 +227,230 @@ func TestTracksLoadedAppliesConfiguredSort(t *testing.T) {
 	}
 	if got := app.trackList.Title; got != "Tracks (3)" {
 		t.Fatalf("track list title = %q, want Tracks (3)", got)
+	}
+}
+
+func TestFavoriteTrackItemHasStarMarker(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.ToggleFavorite("favorite.mp3")
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{{Path: "favorite.mp3", Title: "Favorite"}}})
+	app = m.(*App)
+
+	item, ok := app.trackList.SelectedItem().(trackItem)
+	if !ok {
+		t.Fatalf("selected item = %T, want trackItem", app.trackList.SelectedItem())
+	}
+	if !strings.HasPrefix(item.Title(), "★ ") {
+		t.Fatalf("favorite title = %q, want star marker", item.Title())
+	}
+}
+
+func TestToggleFavoritePrefersCurrentPlayingTrack(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "one.mp3", Title: "One"},
+		{Path: "two.mp3", Title: "Two"},
+	}})
+	app = m.(*App)
+	app.current = 1
+	app.state = audio.StatePlaying
+	app.trackList.Select(0)
+
+	app.toggleFavorite()
+
+	if !store.IsFavorite("two.mp3") || store.IsFavorite("one.mp3") {
+		t.Fatalf("favorites did not use current track")
+	}
+}
+
+func TestToggleFavoriteUsesSelectedTrackWhenStopped(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "one.mp3", Title: "One"},
+		{Path: "two.mp3", Title: "Two"},
+	}})
+	app = m.(*App)
+	app.current = 1
+	app.trackList.Select(0)
+
+	app.toggleFavorite()
+
+	if !store.IsFavorite("one.mp3") || store.IsFavorite("two.mp3") {
+		t.Fatalf("favorites did not use selected stopped track")
+	}
+}
+
+func TestPlaylistKeyDoesNotOverlapPlayPause(t *testing.T) {
+	keys := defaultKeyMap()
+	if key.Matches(tea.KeyPressMsg(tea.Key{Code: 'p', Text: "p"}), keys.PlayPause) {
+		t.Fatal("p unexpectedly matches play/pause")
+	}
+	if !key.Matches(tea.KeyPressMsg(tea.Key{Code: 'p', Text: "p"}), keys.TogglePlaylists) {
+		t.Fatal("p does not match playlists")
+	}
+}
+
+func TestToggleFavoriteKeepsFilteredTrackList(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "alpha.mp3", Title: "Alpha"},
+		{Path: "beta.mp3", Title: "Beta"},
+	}})
+	app = m.(*App)
+	app.trackList.SetFilterText("Alpha")
+
+	app.toggleFavorite()
+
+	if !app.trackList.IsFiltered() || app.trackList.FilterValue() != "Alpha" {
+		t.Fatalf("filter state changed after favoriting")
+	}
+	item, ok := app.trackList.SelectedItem().(trackItem)
+	if !ok || !strings.HasPrefix(item.Title(), "★ ") {
+		t.Fatalf("filtered favorite item = %#v, want star marker", app.trackList.SelectedItem())
+	}
+}
+
+func TestPlaylistTrackPlaybackUsesPlaylistQueue(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pl, err := store.Create("Road Trip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Add(pl.ID, "two.mp3")
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{
+		{Path: "one.mp3", Title: "One"},
+		{Path: "two.mp3", Title: "Two"},
+	}})
+	app = m.(*App)
+	app.currentPlaylist = pl.ID
+	app.setLibraryView(libraryViewPlaylistTracks)
+
+	app.setQueueForCurrentSelection()
+
+	if got := app.queueSourceLabel(); got != "playlist" {
+		t.Fatalf("queue source = %q, want playlist", got)
+	}
+	if len(app.queue) != 1 || app.queue[0].Path != "two.mp3" {
+		t.Fatalf("playlist queue = %#v, want two.mp3", app.queue)
+	}
+}
+
+func TestAddSelectedTrackToPlaylist(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pl, err := store.Create("Road Trip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{{Path: "one.mp3", Title: "One"}}})
+	app = m.(*App)
+
+	app.choosePlaylistForSelectedTrack()
+	app.trackList.Select(1) // Favorites is first, Road Trip is second.
+	app.addPendingTrackToSelectedPlaylist()
+
+	updated, _ := store.Get(pl.ID)
+	if len(updated.Paths) != 1 || updated.Paths[0] != "one.mp3" {
+		t.Fatalf("playlist paths = %#v, want one.mp3", updated.Paths)
+	}
+	if app.libraryView != libraryViewTracks {
+		t.Fatalf("view after add = %v, want tracks", app.libraryView)
+	}
+}
+
+func TestCreatePlaylistFromPlaylistView(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	app.setLibraryView(libraryViewPlaylists)
+	app.playlistNameInput.SetValue("Night Drive")
+
+	app.createPlaylist()
+
+	if _, ok := store.Get("night-drive"); !ok {
+		t.Fatal("created playlist missing")
+	}
+	if got := app.trackList.Title; got != "Playlists (2)" {
+		t.Fatalf("playlist list title = %q, want Playlists (2)", got)
+	}
+}
+
+func TestCreatePlaylistAddsPendingTrack(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{{Path: "one.mp3", Title: "One"}}})
+	app = m.(*App)
+	app.choosePlaylistForSelectedTrack()
+	app.playlistNameInput.SetValue("New List")
+
+	app.createPlaylist()
+
+	pl, ok := store.Get("new-list")
+	if !ok || len(pl.Paths) != 1 || pl.Paths[0] != "one.mp3" {
+		t.Fatalf("new playlist = %#v, want pending track", pl)
+	}
+}
+
+func TestDeleteFavoritesShowsProtectedMessage(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	app.setLibraryView(libraryViewPlaylists)
+
+	app.deleteCurrentPlaylist()
+
+	if app.errMsg != "Favorites cannot be deleted" {
+		t.Fatalf("delete Favorites message = %q", app.errMsg)
+	}
+}
+
+func TestRemoveSelectedTrackFromPlaylist(t *testing.T) {
+	store, err := playlist.Load(filepath.Join(t.TempDir(), "playlists.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Add(playlist.FavoritesID, "one.mp3")
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{PlaylistStore: store})
+	m, _ := app.Update(TracksLoadedMsg{Tracks: []*library.Track{{Path: "one.mp3", Title: "One"}}})
+	app = m.(*App)
+	app.currentPlaylist = playlist.FavoritesID
+	app.setLibraryView(libraryViewPlaylistTracks)
+
+	app.removeSelectedFromPlaylist()
+
+	favorites, _ := store.Get(playlist.FavoritesID)
+	if len(favorites.Paths) != 0 {
+		t.Fatalf("Favorites paths = %#v, want empty", favorites.Paths)
 	}
 }
 

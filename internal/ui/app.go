@@ -16,6 +16,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -27,18 +28,23 @@ import (
 	"github.com/locxl/musicli/internal/log"
 	"github.com/locxl/musicli/internal/lyrics"
 	"github.com/locxl/musicli/internal/mpris"
+	"github.com/locxl/musicli/internal/playlist"
 	"github.com/locxl/musicli/internal/theme"
 )
 
 // trackItem adapts a library.Track to a list.Item.
 type trackItem struct {
-	track *library.Track
+	track    *library.Track
+	favorite bool
 }
 
 func (i trackItem) Title() string {
 	t := i.track.Title
 	if t == "" {
 		t = "(unknown)"
+	}
+	if i.favorite {
+		return "★ " + t
 	}
 	return t
 }
@@ -61,6 +67,16 @@ func (i trackItem) FilterValue() string { return i.track.Title + " " + i.track.A
 type albumItem struct {
 	album *library.Album
 }
+
+type playlistItem struct {
+	playlist playlist.Playlist
+}
+
+func (i playlistItem) Title() string { return i.playlist.Name }
+func (i playlistItem) Description() string {
+	return fmt.Sprintf("%d tracks", len(i.playlist.Paths))
+}
+func (i playlistItem) FilterValue() string { return i.playlist.Name }
 
 func (i albumItem) Title() string {
 	if i.album == nil || i.album.Name == "" {
@@ -100,6 +116,7 @@ type Options struct {
 	PlaybackRepeat    string
 	PlaybackShuffle   bool
 	LyricsAlign       string
+	PlaylistStore     *playlist.Store
 	MPRISSink         func(mpris.Snapshot)
 }
 
@@ -132,6 +149,8 @@ const (
 	libraryViewTracks libraryViewMode = iota
 	libraryViewAlbums
 	libraryViewAlbumTracks
+	libraryViewPlaylists
+	libraryViewPlaylistTracks
 )
 
 type queueSource int
@@ -141,17 +160,19 @@ const (
 	queueSourceAll
 	queueSourceAlbum
 	queueSourceFiltered
+	queueSourcePlaylist
 )
 
 // App is the top-level bubbletea model.
 type App struct {
-	log     *log.Logger
-	theme   *theme.Theme
-	styles  *Styles
-	keys    keyMap
-	options Options
-	engine  *audio.Engine
-	scanner *library.Scanner
+	log       *log.Logger
+	theme     *theme.Theme
+	styles    *Styles
+	keys      keyMap
+	options   Options
+	engine    *audio.Engine
+	scanner   *library.Scanner
+	playlists *playlist.Store
 
 	width, height int
 	leftW         int
@@ -171,16 +192,20 @@ type App struct {
 	coverImage image.Image
 	coverURL   string
 
-	leftContent     leftContentMode
-	libraryView     libraryViewMode
-	currentAlbum    int
-	coverScale      coverScaleMode
-	lyricAlign      lyricAlignMode
-	coverProtocol   string
-	cellPixelW      int
-	cellPixelH      int
-	lastKittyCover  string
-	kittyCoverDrawn bool
+	leftContent          leftContentMode
+	libraryView          libraryViewMode
+	currentAlbum         int
+	currentPlaylist      string
+	pendingPlaylistTrack *library.Track
+	creatingPlaylist     bool
+	playlistNameInput    textinput.Model
+	coverScale           coverScaleMode
+	lyricAlign           lyricAlignMode
+	coverProtocol        string
+	cellPixelW           int
+	cellPixelH           int
+	lastKittyCover       string
+	kittyCoverDrawn      bool
 	// lastKittyFingerprint captures the state that determines the kitty overlay
 	// appearance. Compared on every tick to skip the expensive RenderKitty()
 	// (PNG encode + base64) when nothing has changed.
@@ -231,6 +256,8 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 	trackList.SetShowStatusBar(false)
 	trackList.SetFilteringEnabled(true)
 	trackList.DisableQuitKeybindings()
+	playlistNameInput := textinput.New()
+	playlistNameInput.Prompt = "New playlist: "
 
 	pbar := newProgressBar(t)
 
@@ -242,26 +269,28 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 	)
 
 	return &App{
-		log:             lg.WithModule("ui"),
-		theme:           t,
-		styles:          styles,
-		keys:            keys,
-		options:         opts,
-		engine:          eng,
-		scanner:         sc,
-		trackList:       trackList,
-		delegate:        delegate,
-		progress:        pbar,
-		current:         -1,
-		volume:          80,
-		speed:           1.0,
-		leftContent:     leftContentBoth,
-		currentAlbum:    -1,
-		coverScale:      coverScale,
-		lyricAlign:      lyricAlign,
-		coverProtocol:   coverProtocol,
-		lastState:       audio.StateStopped,
-		lastLyricRender: lyricRenderState{line: -1, word: -1},
+		log:               lg.WithModule("ui"),
+		theme:             t,
+		styles:            styles,
+		keys:              keys,
+		options:           opts,
+		engine:            eng,
+		scanner:           sc,
+		trackList:         trackList,
+		delegate:          delegate,
+		progress:          pbar,
+		current:           -1,
+		volume:            80,
+		speed:             1.0,
+		leftContent:       leftContentBoth,
+		currentAlbum:      -1,
+		coverScale:        coverScale,
+		lyricAlign:        lyricAlign,
+		coverProtocol:     coverProtocol,
+		playlists:         opts.PlaylistStore,
+		playlistNameInput: playlistNameInput,
+		lastState:         audio.StateStopped,
+		lastLyricRender:   lyricRenderState{line: -1, word: -1},
 	}
 }
 
@@ -591,6 +620,20 @@ func lyricHasTiming(ly *lyrics.Lyric) bool {
 func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	fl := a.log.WithFunc("handleKey")
 	keyStr := msg.String()
+	if a.creatingPlaylist {
+		switch msg.String() {
+		case "esc":
+			a.creatingPlaylist = false
+			a.playlistNameInput.Blur()
+			return a, nil
+		case "enter":
+			a.createPlaylist()
+			return a, nil
+		}
+		var cmd tea.Cmd
+		a.playlistNameInput, cmd = a.playlistNameInput.Update(msg)
+		return a, cmd
+	}
 
 	// If the list is filtering, let it handle keys.
 	if a.trackList.FilterState() == list.Filtering {
@@ -606,8 +649,54 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Quit
 
 	case key.Matches(msg, a.keys.Enter):
+		if a.libraryView == libraryViewPlaylists {
+			fl.Debug("key matched", "key", keyStr, "action", "enterPlaylist")
+			if a.pendingPlaylistTrack != nil {
+				a.addPendingTrackToSelectedPlaylist()
+			} else if a.enterPlaylist() {
+				a.resizeComponents()
+			}
+			return a, nil
+		}
 		fl.Debug("key matched", "key", keyStr, "action", "playSelected")
 		return a, a.playSelected()
+
+	case key.Matches(msg, a.keys.TogglePlaylists):
+		fl.Debug("key matched", "key", keyStr, "action", "togglePlaylistView")
+		a.pendingPlaylistTrack = nil
+		a.togglePlaylistView()
+		a.resizeComponents()
+		return a, nil
+
+	case key.Matches(msg, a.keys.ToggleFavorite):
+		fl.Debug("key matched", "key", keyStr, "action", "toggleFavorite")
+		a.toggleFavorite()
+		return a, nil
+
+	case key.Matches(msg, a.keys.RemoveFromList):
+		fl.Debug("key matched", "key", keyStr, "action", "removeSelectedFromPlaylist")
+		a.removeSelectedFromPlaylist()
+		return a, nil
+
+	case key.Matches(msg, a.keys.SortPlaylist):
+		fl.Debug("key matched", "key", keyStr, "action", "sortCurrentPlaylist")
+		a.sortCurrentPlaylist()
+		return a, nil
+
+	case key.Matches(msg, a.keys.DeletePlaylist):
+		fl.Debug("key matched", "key", keyStr, "action", "deleteCurrentPlaylist")
+		a.deleteCurrentPlaylist()
+		return a, nil
+
+	case key.Matches(msg, a.keys.AddToPlaylist):
+		fl.Debug("key matched", "key", keyStr, "action", "choosePlaylistForSelectedTrack")
+		a.choosePlaylistForSelectedTrack()
+		return a, nil
+
+	case key.Matches(msg, a.keys.NewPlaylist):
+		fl.Debug("key matched", "key", keyStr, "action", "startPlaylistCreation")
+		a.startPlaylistCreation()
+		return a, nil
 
 	case key.Matches(msg, a.keys.PlayPause):
 		fl.Debug("key matched", "key", keyStr, "action", "togglePlayPause")
@@ -658,6 +747,15 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.resizeComponents()
 			return a, nil
 		}
+		if a.backToPlaylistList() {
+			a.resizeComponents()
+			return a, nil
+		}
+		if a.libraryView == libraryViewPlaylists && a.pendingPlaylistTrack != nil {
+			a.pendingPlaylistTrack = nil
+			a.setLibraryView(libraryViewTracks)
+			return a, nil
+		}
 
 	case key.Matches(msg, a.keys.SeekFwd):
 		fl.Debug("key matched", "key", keyStr, "action", "seekRelative+5000")
@@ -693,6 +791,187 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	a.trackList, cmd = a.trackList.Update(msg)
 	return a, cmd
+}
+
+func (a *App) choosePlaylistForSelectedTrack() {
+	if a.playlists == nil || a.libraryView == libraryViewAlbums || a.libraryView == libraryViewPlaylists {
+		return
+	}
+	idx := a.selectedTrackIndex()
+	if idx < 0 || idx >= len(a.tracks) {
+		return
+	}
+	a.pendingPlaylistTrack = a.tracks[idx]
+	a.setLibraryView(libraryViewPlaylists)
+}
+
+func (a *App) addPendingTrackToSelectedPlaylist() {
+	if a.playlists == nil || a.pendingPlaylistTrack == nil {
+		return
+	}
+	item, ok := a.trackList.SelectedItem().(playlistItem)
+	if !ok {
+		return
+	}
+	if a.playlists.Add(item.playlist.ID, a.pendingPlaylistTrack.Path) {
+		if err := a.playlists.Save(); err != nil {
+			a.errMsg = fmt.Sprintf("save playlists: %v", err)
+			return
+		}
+		a.errMsg = fmt.Sprintf("added to %s", item.playlist.Name)
+	} else {
+		a.errMsg = fmt.Sprintf("already in %s", item.playlist.Name)
+	}
+	a.pendingPlaylistTrack = nil
+	a.setLibraryView(libraryViewTracks)
+}
+
+func (a *App) startPlaylistCreation() {
+	if a.playlists == nil || a.libraryView != libraryViewPlaylists {
+		return
+	}
+	a.creatingPlaylist = true
+	a.playlistNameInput.SetValue("")
+	a.playlistNameInput.Focus()
+}
+
+func (a *App) createPlaylist() {
+	if a.playlists == nil {
+		return
+	}
+	playlist, err := a.playlists.Create(a.playlistNameInput.Value())
+	if err != nil {
+		a.errMsg = "playlist name cannot be empty"
+		return
+	}
+	if err := a.playlists.Save(); err != nil {
+		a.errMsg = fmt.Sprintf("save playlists: %v", err)
+		return
+	}
+	if a.pendingPlaylistTrack != nil {
+		if a.playlists.Add(playlist.ID, a.pendingPlaylistTrack.Path) {
+			if err := a.playlists.Save(); err != nil {
+				a.errMsg = fmt.Sprintf("save playlists: %v", err)
+				return
+			}
+		}
+		a.pendingPlaylistTrack = nil
+	}
+	a.creatingPlaylist = false
+	a.playlistNameInput.Blur()
+	a.setLibraryView(libraryViewPlaylists)
+	a.errMsg = fmt.Sprintf("created %s", playlist.Name)
+}
+
+func (a *App) toggleFavorite() {
+	if a.playlists == nil {
+		return
+	}
+	idx := -1
+	if a.state == audio.StatePlaying || a.state == audio.StatePaused {
+		idx = a.current
+	}
+	if idx < 0 || idx >= len(a.tracks) {
+		idx = a.selectedTrackIndex()
+	}
+	if idx < 0 || idx >= len(a.tracks) {
+		return
+	}
+	track := a.tracks[idx]
+	favorited := a.playlists.ToggleFavorite(track.Path)
+	if err := a.playlists.Save(); err != nil {
+		a.errMsg = fmt.Sprintf("save favorites: %v", err)
+		return
+	}
+	a.refreshFavoriteMarkers()
+	if favorited {
+		a.errMsg = "added to Favorites"
+	} else {
+		a.errMsg = "removed from Favorites"
+	}
+}
+
+func (a *App) refreshFavoriteMarkers() {
+	items := a.trackList.Items()
+	updated := make([]list.Item, len(items))
+	for i, item := range items {
+		track, ok := item.(trackItem)
+		if !ok {
+			updated[i] = item
+			continue
+		}
+		updated[i] = a.newTrackItem(track.track)
+	}
+	filter := a.trackList.FilterValue()
+	wasFiltered := a.trackList.IsFiltered()
+	selected := a.trackList.Index()
+	a.trackList.SetItems(updated)
+	if wasFiltered {
+		a.trackList.SetFilterText(filter)
+		if visible := len(a.trackList.VisibleItems()); visible > 0 {
+			a.trackList.Select(min(selected, visible-1))
+		}
+	}
+}
+
+func (a *App) removeSelectedFromPlaylist() {
+	if a.libraryView != libraryViewPlaylistTracks || a.playlists == nil {
+		return
+	}
+	item, ok := a.trackList.SelectedItem().(trackItem)
+	if !ok || item.track == nil {
+		return
+	}
+	if !a.playlists.Remove(a.currentPlaylist, item.track.Path) {
+		return
+	}
+	if err := a.playlists.Save(); err != nil {
+		a.errMsg = fmt.Sprintf("save playlists: %v", err)
+		return
+	}
+	a.setLibraryView(libraryViewPlaylistTracks)
+}
+
+func (a *App) sortCurrentPlaylist() {
+	if a.libraryView != libraryViewPlaylistTracks || a.playlists == nil {
+		return
+	}
+	titles := make(map[string]string, len(a.tracks))
+	for _, track := range a.tracks {
+		titles[track.Path] = track.Title
+	}
+	if err := a.playlists.Sort(a.currentPlaylist, func(path string) string { return titles[path] }); err != nil {
+		a.errMsg = fmt.Sprintf("sort playlist: %v", err)
+		return
+	}
+	if err := a.playlists.Save(); err != nil {
+		a.errMsg = fmt.Sprintf("save playlists: %v", err)
+		return
+	}
+	a.setLibraryView(libraryViewPlaylistTracks)
+}
+
+func (a *App) deleteCurrentPlaylist() {
+	if a.libraryView != libraryViewPlaylists || a.playlists == nil {
+		return
+	}
+	item, ok := a.trackList.SelectedItem().(playlistItem)
+	if !ok {
+		return
+	}
+	if err := a.playlists.Delete(item.playlist.ID); err != nil {
+		if errors.Is(err, playlist.ErrProtectedPlaylist) {
+			a.errMsg = "Favorites cannot be deleted"
+		} else {
+			a.errMsg = fmt.Sprintf("delete playlist: %v", err)
+		}
+		return
+	}
+	if err := a.playlists.Save(); err != nil {
+		a.errMsg = fmt.Sprintf("save playlists: %v", err)
+		return
+	}
+	a.setLibraryView(libraryViewPlaylists)
 }
 
 // handleMouse processes mouse click messages.
@@ -733,6 +1012,14 @@ func (a *App) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		a.trackList, cmd = a.trackList.Update(localMsg)
 		newIdx := a.trackList.Index()
 		if msg.Button == tea.MouseLeft && newIdx >= 0 && (newIdx != prevIdx || a.libraryView == libraryViewAlbums) {
+			if a.libraryView == libraryViewPlaylists {
+				if a.pendingPlaylistTrack != nil {
+					a.addPendingTrackToSelectedPlaylist()
+				} else if a.enterPlaylist() {
+					a.resizeComponents()
+				}
+				return a, nil
+			}
 			return a, a.playSelected()
 		}
 		return a, cmd
@@ -760,15 +1047,40 @@ func (a *App) setLibraryView(mode libraryViewMode) {
 		album := a.albums[a.currentAlbum]
 		items := make([]list.Item, len(album.Tracks))
 		for i, track := range album.Tracks {
-			items[i] = trackItem{track: track}
+			items[i] = a.newTrackItem(track)
 		}
 		a.trackList.SetItems(items)
 		a.trackList.Title = fmt.Sprintf("%s (%d)", album.Name, len(album.Tracks))
+	case libraryViewPlaylists:
+		a.currentAlbum = -1
+		a.currentPlaylist = ""
+		items := make([]list.Item, 0)
+		if a.playlists != nil {
+			items = make([]list.Item, len(a.playlists.Playlists))
+			for i, playlist := range a.playlists.Playlists {
+				items[i] = playlistItem{playlist: playlist}
+			}
+		}
+		a.trackList.SetItems(items)
+		a.trackList.Title = fmt.Sprintf("Playlists (%d)", len(items))
+	case libraryViewPlaylistTracks:
+		playlist, ok := a.currentPlaylistValue()
+		if !ok {
+			a.setLibraryView(libraryViewPlaylists)
+			return
+		}
+		tracks := a.playlistTracks(playlist)
+		items := make([]list.Item, len(tracks))
+		for i, track := range tracks {
+			items[i] = a.newTrackItem(track)
+		}
+		a.trackList.SetItems(items)
+		a.trackList.Title = fmt.Sprintf("%s (%d)", playlist.Name, len(tracks))
 	default:
 		a.currentAlbum = -1
 		items := make([]list.Item, len(a.tracks))
 		for i, track := range a.tracks {
-			items[i] = trackItem{track: track}
+			items[i] = a.newTrackItem(track)
 		}
 		a.trackList.SetItems(items)
 		a.trackList.Title = fmt.Sprintf("Tracks (%d)", len(a.tracks))
@@ -776,12 +1088,49 @@ func (a *App) setLibraryView(mode libraryViewMode) {
 	a.trackList.ResetSelected()
 }
 
+func (a *App) newTrackItem(track *library.Track) trackItem {
+	return trackItem{track: track, favorite: a.playlists != nil && a.playlists.IsFavorite(track.Path)}
+}
+
+func (a *App) currentPlaylistValue() (playlist.Playlist, bool) {
+	if a.playlists == nil || a.currentPlaylist == "" {
+		return playlist.Playlist{}, false
+	}
+	return a.playlists.Get(a.currentPlaylist)
+}
+
+func (a *App) playlistTracks(playlist playlist.Playlist) []*library.Track {
+	byPath := make(map[string]*library.Track, len(a.tracks))
+	for _, track := range a.tracks {
+		byPath[track.Path] = track
+	}
+	tracks := make([]*library.Track, 0, len(playlist.Paths))
+	for _, path := range playlist.Paths {
+		if track := byPath[path]; track != nil {
+			tracks = append(tracks, track)
+		}
+	}
+	return tracks
+}
+
 func (a *App) toggleLibraryView() {
+	if a.libraryView == libraryViewPlaylists || a.libraryView == libraryViewPlaylistTracks {
+		a.setLibraryView(libraryViewTracks)
+		return
+	}
 	if a.libraryView == libraryViewTracks {
 		a.setLibraryView(libraryViewAlbums)
 		return
 	}
 	a.setLibraryView(libraryViewTracks)
+}
+
+func (a *App) togglePlaylistView() {
+	if a.libraryView == libraryViewPlaylists || a.libraryView == libraryViewPlaylistTracks {
+		a.setLibraryView(libraryViewTracks)
+		return
+	}
+	a.setLibraryView(libraryViewPlaylists)
 }
 
 func (a *App) enterAlbum() bool {
@@ -797,11 +1146,32 @@ func (a *App) enterAlbum() bool {
 	return true
 }
 
+func (a *App) enterPlaylist() bool {
+	if a.libraryView != libraryViewPlaylists {
+		return false
+	}
+	item, ok := a.trackList.SelectedItem().(playlistItem)
+	if !ok {
+		return false
+	}
+	a.currentPlaylist = item.playlist.ID
+	a.setLibraryView(libraryViewPlaylistTracks)
+	return true
+}
+
 func (a *App) backToAlbums() bool {
 	if a.libraryView != libraryViewAlbumTracks {
 		return false
 	}
 	a.setLibraryView(libraryViewAlbums)
+	return true
+}
+
+func (a *App) backToPlaylistList() bool {
+	if a.libraryView != libraryViewPlaylistTracks {
+		return false
+	}
+	a.setLibraryView(libraryViewPlaylists)
 	return true
 }
 
@@ -830,6 +1200,10 @@ func (a *App) selectedTrackIndex() int {
 				return i
 			}
 		}
+	case libraryViewPlaylistTracks:
+		if item, ok := a.trackList.SelectedItem().(trackItem); ok {
+			return a.trackIndex(item.track)
+		}
 	}
 	return -1
 }
@@ -857,6 +1231,18 @@ func (a *App) selectCurrentInLibraryView() {
 		}
 		currentTrack := a.tracks[a.current]
 		for i, track := range a.albums[a.currentAlbum].Tracks {
+			if track == currentTrack {
+				a.trackList.Select(i)
+				return
+			}
+		}
+	case libraryViewPlaylistTracks:
+		playlist, ok := a.currentPlaylistValue()
+		if !ok {
+			return
+		}
+		currentTrack := a.tracks[a.current]
+		for i, track := range a.playlistTracks(playlist) {
 			if track == currentTrack {
 				a.trackList.Select(i)
 				return
@@ -923,6 +1309,11 @@ func (a *App) setQueueForCurrentSelection() {
 			a.setQueue(queueSourceAlbum, a.albums[a.currentAlbum].Tracks)
 			return
 		}
+	case libraryViewPlaylistTracks:
+		if current, ok := a.currentPlaylistValue(); ok {
+			a.setQueue(queueSourcePlaylist, a.playlistTracks(current))
+			return
+		}
 	}
 	a.setQueue(queueSourceAll, a.tracks)
 }
@@ -944,6 +1335,8 @@ func (a *App) queueSourceLabel() string {
 		return "album"
 	case queueSourceFiltered:
 		return "filtered"
+	case queueSourcePlaylist:
+		return "playlist"
 	case queueSourceAll:
 		return "all"
 	default:
@@ -1601,7 +1994,11 @@ func (a *App) View() tea.View {
 		rightPaneW = 1
 	}
 
-	rightPane := fitBlock(a.trackList.View(), rightPaneW, bodyH)
+	rightPaneContent := a.trackList.View()
+	if a.creatingPlaylist {
+		rightPaneContent = lipgloss.Place(rightPaneW, bodyH, lipgloss.Center, lipgloss.Center, a.playlistNameInput.View())
+	}
+	rightPane := fitBlock(rightPaneContent, rightPaneW, bodyH)
 
 	var body string
 	if leftW > 0 {
@@ -2166,7 +2563,7 @@ func (a *App) renderPlayerHelpLine(width int) string {
 		width = 1
 	}
 	candidates := []string{
-		"q quit  ⏎ play  ␣ pause  n/b next/prev  r repeat  s shuffle  a align  v view  c scale  ←→ seek  / filter",
+		"q quit  ⏎ play  ␣ pause  n/b next/prev  p playlists  f favorite  m add  r repeat  s shuffle  a align  v view  c scale  ←→ seek  / filter",
 		"q quit  ⏎ play  ␣ pause  n/b  r repeat  s shuffle  a align",
 		"q  ⏎  ␣  n/b  r  s  a",
 		"q ⏎ ␣",

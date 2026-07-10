@@ -258,6 +258,14 @@ ui → {audio, library, playlist, lyrics, cover, theme}  # 唯一依赖 bubblete
 - 启动时仍轻量遍历目录以发现变化，但路径、文件大小和修改时间未变的音频文件直接复用缓存 tag；新增、删除、重命名或修改文件会自动更新索引
 - filter 结果播放通过当前选中的实际 `trackItem` 映射回全库，避免把过滤结果索引误当作全库索引而播放错歌
 
+### 阶段 8: 歌单
+- `internal/playlist/`：路径列表 JSON 存储，原子写入 `~/.local/state/musicli/playlists.json`
+- 默认不可删除的 `Favorites` 歌单；`f` 快速收藏/取消收藏当前播放歌曲，未播放时作用于选中歌曲
+- 收藏歌曲在曲目标题前显示 `★`
+- `p` 进入/退出歌单列表；`enter` 进入歌单，歌单内播放会将下一首/上一首范围限定为该歌单
+- `m` 在曲目列表选择目标歌单并加入选中歌曲；`N` 在歌单列表创建新歌单
+- 歌单曲目视图中 `x` 移除选中歌曲，`o` 按当前曲目标题排序；歌单列表中 `d` 删除用户歌单
+
 ## 7. 日志系统
 
 ### 格式
@@ -334,11 +342,6 @@ file = ""            # empty = ~/.local/state/musicli/musicli.log
 - 缓存（封面、歌词）：`~/.cache/musicli/`
 
 ## 9. 待完成阶段
-
-### 阶段 8: 歌单
-- 创建 `internal/playlist/` 包（依赖 library）
-- 添加歌单、删除歌单、加入当前歌单、对当前歌单排序
-- JSON 持久化到 `~/.local/state/musicli/playlists.json`
 
 ### 阶段 9: 频谱可视化
 - PCM tap：ffmpeg stdout reader goroutine 扇出到环形缓冲（非阻塞，满则丢最旧）

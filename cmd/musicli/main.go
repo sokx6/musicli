@@ -19,6 +19,7 @@ import (
 	"github.com/locxl/musicli/internal/library"
 	"github.com/locxl/musicli/internal/log"
 	"github.com/locxl/musicli/internal/mpris"
+	"github.com/locxl/musicli/internal/playlist"
 	"github.com/locxl/musicli/internal/theme"
 	"github.com/locxl/musicli/internal/ui"
 )
@@ -102,6 +103,12 @@ func run() error {
 	sc := library.NewScanner(logger)
 	fl.Info("scanner created")
 
+	playlistStore, err := playlist.Load(xdg.PlaylistPath())
+	if err != nil {
+		return fmt.Errorf("load playlists: %w", err)
+	}
+	fl.Info("playlists loaded", "count", len(playlistStore.Playlists), "path", xdg.PlaylistPath())
+
 	// Theme + UI.
 	t := theme.Default()
 	modeStr := "dark"
@@ -127,6 +134,7 @@ func run() error {
 		PlaybackRepeat:    cfg.Playback.Repeat,
 		PlaybackShuffle:   cfg.Playback.Shuffle,
 		LyricsAlign:       cfg.Lyrics.Align,
+		PlaylistStore:     playlistStore,
 		MPRISSink: func(snapshot mpris.Snapshot) {
 			if mprisSvc != nil {
 				mprisSvc.Update(snapshot)

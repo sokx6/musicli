@@ -114,6 +114,13 @@ type keyMap struct {
 	ToggleView       key.Binding
 	ToggleScale      key.Binding
 	ToggleList       key.Binding
+	TogglePlaylists  key.Binding
+	ToggleFavorite   key.Binding
+	RemoveFromList   key.Binding
+	SortPlaylist     key.Binding
+	DeletePlaylist   key.Binding
+	AddToPlaylist    key.Binding
+	NewPlaylist      key.Binding
 	Back             key.Binding
 	SeekFwd          key.Binding
 	SeekBack         key.Binding
@@ -131,7 +138,7 @@ type keyMap struct {
 // defaultKeyMap returns the built-in keybindings.
 func defaultKeyMap() keyMap {
 	return keyMap{
-		PlayPause:        key.NewBinding(key.WithKeys("space", "p"), key.WithHelp("␣/p", "play/pause")),
+		PlayPause:        key.NewBinding(key.WithKeys("space"), key.WithHelp("␣", "play/pause")),
 		Next:             key.NewBinding(key.WithKeys("n", "l"), key.WithHelp("n", "next")),
 		Prev:             key.NewBinding(key.WithKeys("b", "h"), key.WithHelp("b", "prev")),
 		ToggleRepeat:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "repeat")),
@@ -140,6 +147,13 @@ func defaultKeyMap() keyMap {
 		ToggleView:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cover/lyrics")),
 		ToggleScale:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "cover scale")),
 		ToggleList:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "tracks/albums")),
+		TogglePlaylists:  key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "playlists")),
+		ToggleFavorite:   key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "favorite")),
+		RemoveFromList:   key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "remove playlist track")),
+		SortPlaylist:     key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "sort playlist")),
+		DeletePlaylist:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete playlist")),
+		AddToPlaylist:    key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "add to playlist")),
+		NewPlaylist:      key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "new playlist")),
 		Back:             key.NewBinding(key.WithKeys("esc", "backspace"), key.WithHelp("esc", "back")),
 		SeekFwd:          key.NewBinding(key.WithKeys("right", "L"), key.WithHelp("→", "seek +5s")),
 		SeekBack:         key.NewBinding(key.WithKeys("left", "H"), key.WithHelp("←", "seek -5s")),

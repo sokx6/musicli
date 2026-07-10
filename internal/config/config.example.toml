@@ -43,6 +43,8 @@ track_list_max_width = 80 # 0 = unlimited; otherwise cap the content-fit track l
 # Empty = use built-in defaults. Override individual keys here, e.g.:
 # play_pause = ["space", "p"]
 # next = ["n", "l"]
+# Built-in playlist keys: p playlists, f favorite, m add selected track,
+# N new playlist, x remove playlist track, o sort playlist, d delete playlist.
 
 [log]
 level = "debug"      # debug | info | warning | error
