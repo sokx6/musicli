@@ -96,6 +96,36 @@ func TestKittyRenderSequenceContainsDeletePositionAndPayload(t *testing.T) {
 	}
 }
 
+func TestKittyProgressLineUsesSinglePixelAndNoDelete(t *testing.T) {
+	seq, err := RenderKittyProgressLine(7, 2, 3, 4, 10, 20, 13, color.RGBA{R: 1, G: 2, B: 3, A: 255})
+	if err != nil {
+		t.Fatalf("RenderKittyProgressLine: %v", err)
+	}
+	if strings.Contains(seq, "a=d") {
+		t.Fatalf("progress line must not delete an image before drawing: %q", seq)
+	}
+	if !strings.Contains(seq, "\x1b[3;2H") || !strings.Contains(seq, "i=7,c=4,r=1,z=2;") {
+		t.Fatalf("progress line placement missing: %q", seq)
+	}
+	raw, err := base64.StdEncoding.DecodeString(extractKittyPayload(seq))
+	if err != nil {
+		t.Fatalf("decode progress payload: %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("decode progress png: %v", err)
+	}
+	if got, want := img.Bounds(), image.Rect(0, 0, 40, 20); got != want {
+		t.Fatalf("progress bounds = %v, want %v", got, want)
+	}
+	if got := color.NRGBAModel.Convert(img.At(12, 10)); got != (color.NRGBA{R: 1, G: 2, B: 3, A: 255}) {
+		t.Fatalf("filled progress pixel = %#v", got)
+	}
+	if got := color.NRGBAModel.Convert(img.At(13, 10)); got.(color.NRGBA).A != 0 {
+		t.Fatalf("unfilled progress pixel alpha = %d, want 0", got.(color.NRGBA).A)
+	}
+}
+
 func TestKittyRenderResamplesToCellPixelCanvas(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
 	for y := 0; y < 20; y++ {

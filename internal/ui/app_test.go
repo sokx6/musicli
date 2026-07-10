@@ -1088,6 +1088,46 @@ func TestSeparatorProgressUsesPlayerBarBorderRow(t *testing.T) {
 	}
 }
 
+func TestKittyProgressUpdatesBelowCellGranularityWithoutBlankFrame(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		CoverProtocol: "kitty",
+		ProgressStyle: "separator",
+	})
+	app.width = 10
+	app.height = 12
+	app.cellPixelW = 10
+	app.cellPixelH = 20
+	app.dur = 1000
+	app.pos = 10 // One pixel in a 100-pixel-wide overlay.
+	first := app.kittyProgressCmd()
+	if first == nil {
+		t.Fatal("first pixel progress command is nil")
+	}
+	firstRaw, ok := first().(tea.RawMsg)
+	if !ok {
+		t.Fatalf("first progress message = %T, want tea.RawMsg", first())
+	}
+	if strings.Contains(fmt.Sprint(firstRaw.Msg), "a=d") {
+		t.Fatalf("first progress command unexpectedly deletes image: %q", firstRaw.Msg)
+	}
+
+	app.pos = 20 // Same terminal cell, next pixel.
+	second := app.kittyProgressCmd()
+	if second == nil {
+		t.Fatal("second pixel progress command is nil")
+	}
+	secondRaw, ok := second().(tea.RawMsg)
+	if !ok {
+		t.Fatalf("second progress message = %T, want tea.RawMsg", second())
+	}
+	seq := fmt.Sprint(secondRaw.Msg)
+	drawAt := strings.Index(seq, "a=T")
+	deleteAt := strings.Index(seq, "a=d")
+	if drawAt < 0 || deleteAt < drawAt {
+		t.Fatalf("replacement must draw before deleting previous image: %q", seq)
+	}
+}
+
 func TestSeparatorProgressIncreasesBodyHeight(t *testing.T) {
 	bar := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	separator := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{ProgressStyle: "separator"})

@@ -211,6 +211,8 @@ type App struct {
 	cellPixelH           int
 	lastKittyCover       string
 	kittyCoverDrawn      bool
+	lastKittyProgressPx  int
+	kittyProgressImageID int
 	// lastKittyFingerprint captures the state that determines the kitty overlay
 	// appearance. Compared on every tick to skip the expensive RenderKitty()
 	// (PNG encode + base64) when nothing has changed.
@@ -274,28 +276,29 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 	)
 
 	return &App{
-		log:               lg.WithModule("ui"),
-		theme:             t,
-		styles:            styles,
-		keys:              keys,
-		options:           opts,
-		engine:            eng,
-		scanner:           sc,
-		trackList:         trackList,
-		delegate:          delegate,
-		progress:          pbar,
-		current:           -1,
-		volume:            80,
-		speed:             1.0,
-		leftContent:       leftContentBoth,
-		currentAlbum:      -1,
-		coverScale:        coverScale,
-		lyricAlign:        lyricAlign,
-		coverProtocol:     coverProtocol,
-		playlists:         opts.PlaylistStore,
-		playlistNameInput: playlistNameInput,
-		lastState:         audio.StateStopped,
-		lastLyricRender:   lyricRenderState{line: -1, word: -1},
+		log:                 lg.WithModule("ui"),
+		theme:               t,
+		styles:              styles,
+		keys:                keys,
+		options:             opts,
+		engine:              eng,
+		scanner:             sc,
+		trackList:           trackList,
+		delegate:            delegate,
+		progress:            pbar,
+		current:             -1,
+		volume:              80,
+		speed:               1.0,
+		leftContent:         leftContentBoth,
+		currentAlbum:        -1,
+		coverScale:          coverScale,
+		lyricAlign:          lyricAlign,
+		coverProtocol:       coverProtocol,
+		playlists:           opts.PlaylistStore,
+		playlistNameInput:   playlistNameInput,
+		lastState:           audio.StateStopped,
+		lastLyricRender:     lyricRenderState{line: -1, word: -1},
+		lastKittyProgressPx: -1,
 	}
 }
 
@@ -383,7 +386,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		fl.Debug("received msg", "type", "WindowSizeMsg", "width", msg.Width, "height", msg.Height)
 		a.width, a.height = msg.Width, msg.Height
 		a.resizeComponents()
-		return a, nil
+		return a, a.resetKittyProgressCmd()
 
 	case tea.KeyMsg:
 		fl := a.log.WithFunc("Update")
@@ -448,7 +451,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if newLyric != prevLyric {
 			return a, tea.Batch(tickCmd(), a.lyricChangeCmd())
 		}
-		return a, tea.Batch(tickCmd(), a.kittyCoverCmd())
+		return a, tea.Batch(tickCmd(), a.kittyCoverCmd(), a.kittyProgressCmd())
 
 	case errMsg:
 		fl := a.log.WithFunc("Update")
@@ -464,7 +467,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.lastKittyCover = ""
 		a.kittyCoverDrawn = false
 		a.lastKittyFingerprint = ""
-		return a, nil
+		return a, a.resetKittyProgressCmd()
 	}
 
 	// forward to list
@@ -1689,21 +1692,77 @@ func (a *App) kittyCoverCmd() tea.Cmd {
 	return tea.Raw(seq)
 }
 
+const (
+	kittyProgressImageA = 3
+	kittyProgressImageB = 4
+)
+
+func (a *App) kittyProgressEnabled() bool {
+	return a.coverProtocol == cover.ProtocolKitty && a.usesSeparatorProgress() && a.width > 0 && a.height > 0
+}
+
+func (a *App) kittyProgressCmd() tea.Cmd {
+	if !a.kittyProgressEnabled() {
+		return a.resetKittyProgressCmd()
+	}
+	cellW := a.cellPixelW
+	if cellW <= 0 {
+		cellW = 10
+	}
+	pixelWidth := a.width * cellW
+	playedPixels := int(a.playbackPercent() * float64(pixelWidth))
+	if playedPixels == a.lastKittyProgressPx {
+		return nil
+	}
+	if playedPixels == 0 {
+		return a.resetKittyProgressCmd()
+	}
+
+	nextID := kittyProgressImageA
+	if a.kittyProgressImageID == kittyProgressImageA {
+		nextID = kittyProgressImageB
+	}
+	y := 2 + a.bodyHeight() + 1 // top bar, body, then 1-based separator row.
+	seq, err := cover.RenderKittyProgressLine(nextID, 1, y, a.width, a.cellPixelW, a.cellPixelH, playedPixels, a.theme.ProgressColor())
+	if err != nil {
+		a.log.WithFunc("kittyProgressCmd").Warn("kitty progress render failed", "err", err)
+		return nil
+	}
+	if a.kittyProgressImageID != 0 {
+		seq += cover.ClearKittyImage(a.kittyProgressImageID)
+	}
+	a.kittyProgressImageID = nextID
+	a.lastKittyProgressPx = playedPixels
+	return tea.Raw(seq)
+}
+
+func (a *App) resetKittyProgressCmd() tea.Cmd {
+	if a.kittyProgressImageID == 0 {
+		a.lastKittyProgressPx = -1
+		return nil
+	}
+	seq := cover.ClearKittyImage(a.kittyProgressImageID)
+	a.kittyProgressImageID = 0
+	a.lastKittyProgressPx = -1
+	return tea.Raw(seq)
+}
+
 func (a *App) clearScreenAndKittyCoverCmd() tea.Cmd {
 	a.lastKittyCover = ""
 	a.kittyCoverDrawn = false
 	a.lastKittyFingerprint = ""
+	progressCmd := a.resetKittyProgressCmd()
 	if a.coverProtocol == cover.ProtocolKitty {
 		// ponytail: For kitty, ClearScreen forces a full repaint that erases the
 		// virtual image overlay. Skip it; if lyrics-only is active, clear the
 		// overlay immediately, otherwise the next tick redraws after the view
 		// settles.
 		if a.leftContent == leftContentLyrics {
-			return a.kittyCoverCmd()
+			return tea.Batch(a.kittyCoverCmd(), progressCmd)
 		}
-		return nil
+		return progressCmd
 	}
-	return tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, a.kittyCoverCmd())
+	return tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, tea.Batch(a.kittyCoverCmd(), progressCmd))
 }
 
 func (a *App) lyricChangeCmd() tea.Cmd {

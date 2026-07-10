@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"image/color"
 	"image/png"
 	"strings"
 )
@@ -116,6 +117,48 @@ func RenderKitty(img image.Image, placement KittyPlacement) (string, error) {
 	}
 
 	return b.String(), nil
+}
+
+// RenderKittyProgressLine draws a one-pixel line over a terminal row without
+// deleting an existing image. Callers can display a replacement first, then
+// delete the previous image ID to avoid a visible blank frame.
+func RenderKittyProgressLine(id, x, y, width, cellW, cellH, playedPixels int, lineColor color.Color) (string, error) {
+	if id <= 0 || x <= 0 || y <= 0 || width <= 0 {
+		return "", nil
+	}
+	if cellW <= 0 {
+		cellW = kittyCellPixelWidth
+	}
+	if cellH <= 0 {
+		cellH = kittyCellPixelHeight
+	}
+	pixelWidth := width * cellW
+	if playedPixels < 0 {
+		playedPixels = 0
+	}
+	if playedPixels > pixelWidth {
+		playedPixels = pixelWidth
+	}
+
+	line := image.NewRGBA(image.Rect(0, 0, pixelWidth, cellH))
+	if playedPixels > 0 {
+		lineY := cellH / 2
+		c := color.NRGBAModel.Convert(lineColor)
+		for px := 0; px < playedPixels; px++ {
+			line.Set(px, lineY, c)
+		}
+	}
+
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, line); err != nil {
+		return "", fmt.Errorf("encode kitty progress line: %w", err)
+	}
+	payload := base64.StdEncoding.EncodeToString(pngBuf.Bytes())
+	if len(payload) > kittyMaxChunkSize {
+		return "", fmt.Errorf("kitty progress line payload too large: %d", len(payload))
+	}
+
+	return fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=T,t=d,f=100,i=%d,c=%d,r=1,z=2;%s\x1b\\", y, x, id, width, payload), nil
 }
 
 func imageCanvas(img image.Image, width, height int, scale ScaleMode, cellW, cellH int) image.Image {
