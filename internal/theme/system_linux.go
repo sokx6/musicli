@@ -37,10 +37,19 @@ func portalMode() (Mode, error) {
 	if err != nil {
 		return ModeDark, err
 	}
-	if scheme, ok := value.Value().(uint32); ok && scheme == 2 {
-		return ModeLight, nil
+	if scheme, ok := value.Value().(uint32); ok {
+		return modeFromPortalScheme(scheme), nil
 	}
-	return ModeLight, nil
+	return ModeDark, nil
+}
+
+// The portal standard defines 0 as no preference, 1 as prefer dark, and 2 as
+// prefer light. Keep no preference on the application's dark fallback.
+func modeFromPortalScheme(scheme uint32) Mode {
+	if scheme == 2 {
+		return ModeLight
+	}
+	return ModeDark
 }
 
 func watchSystemMode(ctx context.Context, send func(Mode)) {
@@ -102,10 +111,7 @@ func watchPortalMode(ctx context.Context, send func(Mode)) bool {
 				continue
 			}
 			scheme, _ := value.Value().(uint32)
-			next := ModeDark
-			if scheme == 2 {
-				next = ModeLight
-			}
+			next := modeFromPortalScheme(scheme)
 			if next != current {
 				current = next
 				send(next)
