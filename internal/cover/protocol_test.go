@@ -145,6 +145,27 @@ func TestKittyProgressLineUsesSinglePixelAndNoDelete(t *testing.T) {
 	}
 }
 
+func TestKittyGradientProgressLineInterpolatesPixels(t *testing.T) {
+	seq, err := RenderKittyGradientProgressLine(1, 1, 1, 2, 4, 4, 8, 1,
+		[]color.Color{color.RGBA{R: 0, A: 255}, color.RGBA{R: 255, A: 255}}, color.RGBA{A: 255})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(extractKittyPayload(seq))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	left := color.NRGBAModel.Convert(img.At(0, 2)).(color.NRGBA)
+	right := color.NRGBAModel.Convert(img.At(7, 2)).(color.NRGBA)
+	if left.R >= right.R || right.R < 240 {
+		t.Fatalf("gradient endpoints = %#v %#v, want dark to bright", left, right)
+	}
+}
+
 func TestKittyProgressLineThickness(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

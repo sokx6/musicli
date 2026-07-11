@@ -274,6 +274,13 @@ ui → {audio, library, playlist, lyrics, cover, theme}  # 唯一依赖 bubblete
 - 开启后频谱是左栏独立分区：封面+歌词、只封面时在封面下方；只歌词时占用原封面侧。空间不足时自动隐藏，不与封面或歌词重合
 - 频谱低/中/高强度使用独立样式，为阶段 10 的主题配色预留入口
 
+### 阶段 10: 主题系统（第一版）
+- `[theme] mode = "auto" | "dark" | "light"` 选择模式；`dark`、`light` 分别指向独立 `.theme` 文件，相对路径相对 `config.toml`
+- `.theme` 文件定义基础颜色和 `progress`/`spectrum` 渐变；无效字段按字段回退到内置深浅主题并写日志 warning
+- 普通进度条按终端单元渐变、Kitty 分割线按像素渐变、Braille 频谱从底到顶连续渐变
+- 主题变化在 Bubble Tea 主循环中重建 UI 样式；Kitty 封面与进度覆盖层按新颜色重画，不改变播放或布局状态
+- `auto` 在 Linux 优先监听 XDG portal，portal 不可用时使用 gsettings；其他平台安全回退深色。主题文件修改自动重载暂缓
+
 ## 7. 日志系统
 
 ### 格式
@@ -334,7 +341,8 @@ protocol = "auto"    # auto | kitty | sixel | iterm | halfblock
 
 [theme]
 mode = "auto"        # auto | dark | light
-name = "default"
+dark = "themes/default-dark.theme"
+light = "themes/default-light.theme"
 
 [ui]
 track_list_max_width = 80  # 0 = unlimited
@@ -363,11 +371,11 @@ file = ""            # empty = ~/.local/state/musicli/musicli.log
 - 渲染：`▁▂▃▄▅▆▇█` 块字符或 lipgloss 渐变柱
 - 参考：`Charlyhokno-eng/go-cli-beat`（cava 风格 attack/decay）
 
-### 阶段 10: 主题
-- TOML 自定义调色板（深/浅色各一套）
-- 系统检测：`godbus/dbus/v5` XDG portal → gsettings → termenv OSC11
-- 监听变化：dbus SettingChanged 信号 → goroutine → p.Send(themeChangedMsg{})
-- 扩展 Theme 结构体（阶段 3 已有最小版本）
+### 阶段 10: 主题系统（第一版，已完成）
+- `config.toml` 的 `[theme]` 用 `mode` 选择 `auto`、`dark` 或 `light`，并用 `dark`、`light` 指向两个独立 `.theme` 文件。
+- `.theme` 文件提供基础颜色、进度条渐变和频谱渐变；相对路径按 `config.toml` 所在目录解析，字段无效时回退内置主题并写 warning。
+- Linux 自动模式优先使用 XDG Portal，Portal 不可用时轮询 gsettings；平台不支持时安全回退深色。
+- 主题变化通过 `Program.Send` 进入 Bubble Tea 主循环，重建样式并按顺序刷新 Kitty 封面和进度覆盖层。
 
 ### 阶段 11: 快捷键自定义
 - TOML `[keybindings]` 覆盖默认 KeyMap（阶段 3 已有默认）

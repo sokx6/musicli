@@ -1,0 +1,14 @@
+[meta]
+name = "Default Light"
+
+[colors]
+bg = "#f5f7fb"
+fg = "#26324a"
+muted = "#66728a"
+accent = "#2463c5"
+subtle = "#dce5f2"
+highlight = "#8a4bbd"
+
+[gradients]
+progress = ["#2463c5", "#8a4bbd", "#c34b72"]
+spectrum = ["#66728a", "#2463c5", "#8a4bbd", "#c34b72"]

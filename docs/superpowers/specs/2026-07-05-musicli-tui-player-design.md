@@ -165,7 +165,8 @@ protocol = "auto"    # auto|kitty|sixel|iterm|halfblock
 
 [theme]
 mode = "auto"        # auto|dark|light
-name = "default"     # 主题名
+dark = "themes/default-dark.theme"
+light = "themes/default-light.theme"
 
 [keybindings]
 # 见 4.8
@@ -345,9 +346,9 @@ type Theme struct {
     // ... 调色板
 }
 ```
-- 检测：XDG portal `org.freedesktop.appearance.color-scheme`（godbus）→ gsettings → termenv OSC11
+- 检测：Linux 上 XDG portal `org.freedesktop.appearance.color-scheme`（godbus）→ gsettings；其他平台安全回退深色
 - 监听：dbus SettingChanged 信号 → goroutine → `p.Send(themeChangedMsg{})` → Update 重设样式
-- 自定义：TOML 定义调色板，深/浅色各一套
+- 自定义：`config.toml` 分别指定暗色、亮色 `.theme` 文件；文件内定义调色板及进度条、频谱渐变
 
 ### 4.9 TUI (ui/)
 

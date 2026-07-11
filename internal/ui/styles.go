@@ -56,15 +56,13 @@ func NewStyles(t *theme.Theme) *Styles {
 			Border(lipgloss.NormalBorder(), true, false, false, false).
 			BorderForeground(borderColor).
 			Padding(0, 1),
-		title:  lipgloss.NewStyle().Foreground(t.Accent).Bold(true),
-		muted:  lipgloss.NewStyle().Foreground(t.Muted),
-		accent: lipgloss.NewStyle().Foreground(t.Accent),
-		help:   lipgloss.NewStyle().Foreground(t.Muted),
-		// Kept separate from the FFT/rendering path so theme configuration can
-		// replace these colors without changing spectrum behavior.
-		spectrumLow:  lipgloss.NewStyle().Foreground(t.Muted),
-		spectrumMid:  lipgloss.NewStyle().Foreground(t.Highlight),
-		spectrumHigh: lipgloss.NewStyle().Foreground(t.Accent),
+		title:        lipgloss.NewStyle().Foreground(t.Accent).Bold(true),
+		muted:        lipgloss.NewStyle().Foreground(t.Muted),
+		accent:       lipgloss.NewStyle().Foreground(t.Accent),
+		help:         lipgloss.NewStyle().Foreground(t.Muted),
+		spectrumLow:  lipgloss.NewStyle().Foreground(theme.GradientAt(t.SpectrumGradient, 0)),
+		spectrumMid:  lipgloss.NewStyle().Foreground(theme.GradientAt(t.SpectrumGradient, 0.5)),
+		spectrumHigh: lipgloss.NewStyle().Foreground(theme.GradientAt(t.SpectrumGradient, 1)),
 	}
 }
 
@@ -105,7 +103,8 @@ func newListComponentStyles(t *theme.Theme) list.Styles {
 // newProgressBar creates a themed progress bar.
 func newProgressBar(t *theme.Theme) progress.Model {
 	p := progress.New(
-		progress.WithColors(t.Accent, t.Highlight),
+		progress.WithColors(t.ProgressGradient...),
+		progress.WithScaled(true),
 		progress.WithoutPercentage(),
 	)
 	return p

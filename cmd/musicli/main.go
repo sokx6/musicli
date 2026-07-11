@@ -69,7 +69,8 @@ func run() error {
 		"dbus.mpris", cfg.DBus.MPRIS,
 		"dbus.lyrics", cfg.DBus.Lyrics,
 		"theme.mode", cfg.Theme.Mode,
-		"theme.name", cfg.Theme.Name,
+		"theme.dark", cfg.Theme.Dark,
+		"theme.light", cfg.Theme.Light,
 		"ui.track_list_max_width", cfg.UI.TrackListMaxWidth,
 		"ui.progress_style", cfg.UI.ProgressStyle,
 		"ui.separator_progress_thickness", cfg.UI.SeparatorProgressThickness,
@@ -112,12 +113,27 @@ func run() error {
 	fl.Info("playlists loaded", "count", len(playlistStore.Playlists), "path", xdg.PlaylistPath())
 
 	// Theme + UI.
-	t := theme.Default()
+	resolvedThemeMode, themeWarnings := theme.ResolveMode(cfg.Theme.Mode)
+	for _, warning := range themeWarnings {
+		fl.Warn("theme warning", "msg", warning)
+	}
+	loadTheme := func(mode theme.Mode) *theme.Theme {
+		path := cfg.Theme.Dark
+		if mode == theme.ModeLight {
+			path = cfg.Theme.Light
+		}
+		loaded, warnings := theme.Load(path, mode)
+		for _, warning := range warnings {
+			fl.Warn("theme warning", "msg", warning)
+		}
+		return loaded
+	}
+	t := loadTheme(resolvedThemeMode)
 	modeStr := "dark"
 	if t.Mode == theme.ModeLight {
 		modeStr = "light"
 	}
-	fl.Info("theme loaded", "mode", modeStr, "name", cfg.Theme.Name)
+	fl.Info("theme loaded", "mode", modeStr, "name", t.Name)
 
 	var mprisSvc *mpris.LazyService
 	if cfg.DBus.MPRIS || cfg.DBus.Lyrics {
@@ -153,6 +169,12 @@ func run() error {
 	// set on the View returned by the model's View().
 	p := tea.NewProgram(app, tea.WithFPS(30))
 	fl.Info("bubbletea program created", "fps", 30)
+
+	if cfg.Theme.Mode == "auto" {
+		go theme.WatchSystemMode(ctx, func(mode theme.Mode) {
+			p.Send(ui.ThemeChangedMsg{Theme: loadTheme(mode)})
+		})
+	}
 
 	if mprisSvc != nil {
 		go func() {

@@ -1662,7 +1662,7 @@ func TestRenderSpectrumPaneUsesBrailleAndVerticalGradient(t *testing.T) {
 			t.Fatalf("spectrum row %d width = %d, want 8", i, got)
 		}
 	}
-	if !strings.Contains(lines[0], "122;162;247") || !strings.Contains(lines[3], "86;95;137") {
+	if !strings.Contains(lines[0], "247;118;142") || !strings.Contains(lines[3], "86;95;137") {
 		t.Fatalf("gradient colors must follow row height, got top=%q bottom=%q", lines[0], lines[3])
 	}
 }
@@ -1675,6 +1675,51 @@ func TestSpectrumBrailleDotsUsesBothThinColumns(t *testing.T) {
 	left, right = spectrumBrailleDots(0, 1, 3, 4)
 	if left != 0 || right == 0 {
 		t.Fatalf("right-only bars = (%#x, %#x), want right dots only", left, right)
+	}
+}
+
+func TestThemeChangedRebuildsProgressAndSpectrumStyles(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	next := theme.DefaultForMode(theme.ModeLight)
+	next.ProgressGradient = []color.Color{color.RGBA{R: 1, G: 2, B: 3, A: 255}, color.RGBA{R: 4, G: 5, B: 6, A: 255}}
+	next.SpectrumGradient = []color.Color{color.RGBA{R: 7, G: 8, B: 9, A: 255}, color.RGBA{R: 10, G: 11, B: 12, A: 255}}
+
+	m, _ := app.Update(ThemeChangedMsg{Theme: next})
+	app = m.(*App)
+	if app.theme != next || app.styles.theme != next {
+		t.Fatal("theme change did not replace app styles")
+	}
+	if got := fmt.Sprint(app.spectrumStyleForRow(0, 2)); !strings.Contains(got, "10;11;12") {
+		t.Fatalf("spectrum style = %q, want top gradient color", got)
+	}
+}
+
+func TestSeparatorProgressUsesConfiguredGradient(t *testing.T) {
+	palette := theme.Default()
+	palette.ProgressGradient = []color.Color{color.RGBA{R: 1, G: 2, B: 3, A: 255}, color.RGBA{R: 4, G: 5, B: 6, A: 255}}
+	app := NewWithOptions(nil, nil, palette, log.Discard(), Options{ProgressStyle: "separator", CoverProtocol: "halfblock"})
+	app.dur, app.pos = 100, 100
+	rendered := app.renderSeparatorProgress(8)
+	if !strings.Contains(rendered, "1;2;3") || !strings.Contains(rendered, "4;5;6") {
+		t.Fatalf("separator does not use progress gradient: %q", rendered)
+	}
+}
+
+func TestThemeChangeInvalidatesKittyProgressOverlay(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{CoverProtocol: "kitty", ProgressStyle: "separator"})
+	app.width, app.height = 80, 24
+	app.cellPixelW, app.cellPixelH = 10, 20
+	app.dur, app.pos = 1000, 500
+	if cmd := app.kittyProgressCmd(); cmd == nil {
+		t.Fatal("initial kitty progress command is nil")
+	}
+	m, cmd := app.Update(ThemeChangedMsg{Theme: theme.DefaultForMode(theme.ModeLight)})
+	app = m.(*App)
+	if cmd == nil {
+		t.Fatal("theme change command is nil")
+	}
+	if app.lastKittyProgressPx != 400 || app.kittyProgressImageID == 0 {
+		t.Fatalf("theme change did not replace kitty progress: px=%d id=%d", app.lastKittyProgressPx, app.kittyProgressImageID)
 	}
 }
 

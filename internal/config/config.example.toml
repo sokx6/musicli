@@ -38,7 +38,8 @@ lyrics = true         # expose io.github.locxl.musicli.Lyrics
 
 [theme]
 mode = "auto"        # auto | dark | light
-name = "default"
+dark = ""             # .theme file; relative paths use ~/.config/musicli/
+light = ""            # .theme file; relative paths use ~/.config/musicli/
 
 [ui]
 track_list_max_width = 80 # 0 = unlimited; otherwise cap the content-fit track list width

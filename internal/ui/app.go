@@ -342,6 +342,9 @@ type ScanStartMsg struct{ Path string }
 type tickMsg struct{}
 type errMsg struct{ err error }
 
+// ThemeChangedMsg is delivered from the platform appearance watcher.
+type ThemeChangedMsg struct{ Theme *theme.Theme }
+
 // DBusCommandMsg carries a player command received from D-Bus into the UI
 // event loop. The UI remains the single owner of playback/list state.
 type DBusCommandMsg struct{ Command mpris.Command }
@@ -452,6 +455,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DBusCommandMsg:
 		return a, a.handleDBusCommand(msg.Command)
+
+	case ThemeChangedMsg:
+		if msg.Theme == nil {
+			return a, nil
+		}
+		a.applyTheme(msg.Theme)
+		return a, a.themeRedrawCmd(a.resetKittyProgressCmd())
 
 	case tickMsg:
 		prevLyric := a.lastLyricRender
@@ -1745,10 +1755,10 @@ func (a *App) kittyProgressCmd() tea.Cmd {
 		nextID = kittyProgressImageB
 	}
 	y := 2 + a.bodyHeight() + 1 // top bar, body, then 1-based separator row.
-	seq, err := cover.RenderKittyProgressLine(
+	seq, err := cover.RenderKittyGradientProgressLine(
 		nextID, 1, y, a.width, a.cellPixelW, a.cellPixelH, playedPixels,
 		a.options.SeparatorProgressThickness,
-		a.theme.ProgressColor(), a.theme.Muted,
+		a.theme.ProgressGradient, a.theme.Muted,
 	)
 	if err != nil {
 		a.log.WithFunc("kittyProgressCmd").Warn("kitty progress render failed", "err", err)
@@ -1763,9 +1773,17 @@ func (a *App) kittyProgressCmd() tea.Cmd {
 }
 
 func (a *App) resetKittyProgressCmd() tea.Cmd {
+	seq := a.invalidateKittyProgress()
+	if seq == "" {
+		return nil
+	}
+	return tea.Raw(seq)
+}
+
+func (a *App) invalidateKittyProgress() string {
 	if a.kittyProgressImageID == 0 {
 		a.lastKittyProgressPx = -1
-		return nil
+		return ""
 	}
 	// Either alternating ID can survive an interrupted raw write. Clear both
 	// IDs whenever the overlay is reset so no stale line remains after a view
@@ -1773,7 +1791,7 @@ func (a *App) resetKittyProgressCmd() tea.Cmd {
 	seq := cover.ClearKittyImage(kittyProgressImageA) + cover.ClearKittyImage(kittyProgressImageB)
 	a.kittyProgressImageID = 0
 	a.lastKittyProgressPx = -1
-	return tea.Raw(seq)
+	return seq
 }
 
 func (a *App) clearScreenAndKittyCoverCmd() tea.Cmd {
@@ -1787,6 +1805,28 @@ func (a *App) clearScreenAndKittyCoverCmd() tea.Cmd {
 		return tea.Sequence(a.kittyCoverCmd(), a.kittyProgressCmd())
 	}
 	return tea.Sequence(func() tea.Msg { return tea.ClearScreen() }, a.kittyCoverCmd())
+}
+
+// applyTheme replaces every style derived from the palette while preserving
+// playback and layout state. Image overlays are invalidated by the caller.
+func (a *App) applyTheme(next *theme.Theme) {
+	a.theme = next
+	a.styles = NewStyles(next)
+	a.delegate = newListDelegate(next)
+	a.trackList.SetDelegate(a.delegate)
+	a.trackList.Styles = newListComponentStyles(next)
+	a.progress = newProgressBar(next)
+	a.resizeComponents()
+}
+
+func (a *App) themeRedrawCmd(clearProgress tea.Cmd) tea.Cmd {
+	a.lastKittyCover = ""
+	a.kittyCoverDrawn = false
+	a.lastKittyFingerprint = ""
+	if a.coverProtocol == cover.ProtocolKitty {
+		return tea.Sequence(clearProgress, a.kittyCoverCmd(), a.kittyProgressCmd())
+	}
+	return tea.Sequence(clearProgress, func() tea.Msg { return tea.ClearScreen() })
 }
 
 func (a *App) lyricChangeCmd() tea.Cmd {
@@ -2307,13 +2347,11 @@ func (a *App) renderSpectrumLevels(levels []float64, w, h int) string {
 }
 
 func (a *App) spectrumStyleForRow(row, height int) lipgloss.Style {
-	if row < height/3 {
-		return a.styles.spectrumHigh
+	position := 1.0
+	if height > 1 {
+		position = 1 - float64(row)/float64(height-1)
 	}
-	if row < 2*height/3 {
-		return a.styles.spectrumMid
-	}
-	return a.styles.spectrumLow
+	return lipgloss.NewStyle().Foreground(theme.GradientAt(a.theme.SpectrumGradient, position))
 }
 
 func levelAt(levels []float64, index int) float64 {
@@ -2793,8 +2831,16 @@ func (a *App) renderSeparatorProgress(width int) string {
 	if played > width {
 		played = width
 	}
-	return a.styles.accent.Render(strings.Repeat("─", played)) +
-		a.styles.muted.Render(strings.Repeat("─", width-played))
+	var b strings.Builder
+	for i := 0; i < played; i++ {
+		position := 0.0
+		if width > 1 {
+			position = float64(i) / float64(width-1)
+		}
+		b.WriteString(lipgloss.NewStyle().Foreground(theme.GradientAt(a.theme.ProgressGradient, position)).Render("─"))
+	}
+	b.WriteString(a.styles.muted.Render(strings.Repeat("─", width-played)))
+	return b.String()
 }
 
 func (a *App) playerStateIcon() string {

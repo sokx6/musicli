@@ -73,8 +73,9 @@ type DBus struct {
 }
 
 type Theme struct {
-	Mode string `toml:"mode"`
-	Name string `toml:"name"`
+	Mode  string `toml:"mode"`
+	Dark  string `toml:"dark"`
+	Light string `toml:"light"`
 }
 
 type UI struct {
@@ -129,7 +130,7 @@ func Load(path string) (*Config, []string, error) {
 	}
 
 	cfg.applyDefaults(&warnings)
-	cfg.expandPaths()
+	cfg.expandPaths(filepath.Dir(path))
 
 	return cfg, warnings, nil
 }
@@ -175,6 +176,14 @@ func (c *Config) applyDefaults(warnings *[]string) {
 	default:
 		*warnings = append(*warnings, fmt.Sprintf("lyrics.highlight_mode %q invalid, using played", c.Lyrics.HighlightMode))
 		c.Lyrics.HighlightMode = "played"
+	}
+	switch c.Theme.Mode {
+	case "", "dark":
+		c.Theme.Mode = "dark"
+	case "light", "auto":
+	default:
+		*warnings = append(*warnings, fmt.Sprintf("theme.mode %q invalid, using dark", c.Theme.Mode))
+		c.Theme.Mode = "dark"
 	}
 	switch c.Library.SortField {
 	case "title", "artist", "album", "size", "year":
@@ -235,7 +244,7 @@ func (c *Config) applyDefaults(warnings *[]string) {
 }
 
 // expandPaths resolves ~ and empty path placeholders against XDG dirs.
-func (c *Config) expandPaths() {
+func (c *Config) expandPaths(configDir string) {
 	if c.Library.MusicDir != "" {
 		c.Library.MusicDir = expandHome(c.Library.MusicDir)
 	}
@@ -249,6 +258,19 @@ func (c *Config) expandPaths() {
 	} else {
 		c.Lyrics.SaveDir = expandHome(c.Lyrics.SaveDir)
 	}
+	c.Theme.Dark = resolveConfigRelativePath(c.Theme.Dark, configDir)
+	c.Theme.Light = resolveConfigRelativePath(c.Theme.Light, configDir)
+}
+
+func resolveConfigRelativePath(p, base string) string {
+	if p == "" {
+		return ""
+	}
+	p = expandHome(p)
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(base, p)
 }
 
 func expandHome(p string) string {

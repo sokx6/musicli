@@ -52,11 +52,49 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	if c.Spectrum.Enabled {
 		t.Error("default spectrum enabled = true, want false")
 	}
+	if c.Theme.Dark != "" || c.Theme.Light != "" {
+		t.Errorf("default theme paths = %q/%q, want empty", c.Theme.Dark, c.Theme.Light)
+	}
 	if !c.DBus.MPRIS {
 		t.Errorf("default dbus.mpris = false, want true")
 	}
 	if !c.DBus.Lyrics {
 		t.Errorf("default dbus.lyrics = false, want true")
+	}
+}
+
+func TestLoadResolvesThemePathsRelativeToConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("[theme]\ndark = \"themes/night.theme\"\nlight = \"/tmp/day.theme\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if got, want := c.Theme.Dark, filepath.Join(dir, "themes", "night.theme"); got != want {
+		t.Fatalf("dark theme path = %q, want %q", got, want)
+	}
+	if got, want := c.Theme.Light, "/tmp/day.theme"; got != want {
+		t.Fatalf("light theme path = %q, want %q", got, want)
+	}
+}
+
+func TestLoadClampsInvalidThemeMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[theme]\nmode = \"rainbow\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Theme.Mode != "dark" || !strings.Contains(strings.Join(warnings, "\n"), "theme.mode") {
+		t.Fatalf("theme mode = %q, warnings = %v", c.Theme.Mode, warnings)
 	}
 }
 

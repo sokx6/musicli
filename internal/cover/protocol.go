@@ -126,6 +126,12 @@ func RenderKitty(img image.Image, placement KittyPlacement) (string, error) {
 // deleting an existing image. Callers can display a replacement first, then
 // delete the previous image ID to avoid a visible blank frame.
 func RenderKittyProgressLine(id, x, y, width, cellW, cellH, playedPixels, thickness int, playedColor, remainingColor color.Color) (string, error) {
+	return RenderKittyGradientProgressLine(id, x, y, width, cellW, cellH, playedPixels, thickness, []color.Color{playedColor}, remainingColor)
+}
+
+// RenderKittyGradientProgressLine draws a pixel-level progress gradient. The
+// palette is interpolated from left to right across the played portion.
+func RenderKittyGradientProgressLine(id, x, y, width, cellW, cellH, playedPixels, thickness int, gradient []color.Color, remainingColor color.Color) (string, error) {
 	if id <= 0 || x <= 0 || y <= 0 || width <= 0 {
 		return "", nil
 	}
@@ -159,10 +165,9 @@ func RenderKittyProgressLine(id, x, y, width, cellW, cellH, playedPixels, thickn
 			line.Set(px, py, remaining)
 		}
 	}
-	played := color.NRGBAModel.Convert(playedColor)
 	for py := startY; py < startY+thickness; py++ {
 		for px := 0; px < playedPixels; px++ {
-			line.Set(px, py, played)
+			line.Set(px, py, gradientColor(gradient, float64(px)/float64(max(1, pixelWidth-1))))
 		}
 	}
 
@@ -179,6 +184,25 @@ func RenderKittyProgressLine(id, x, y, width, cellW, cellH, playedPixels, thickn
 	// position around the absolute placement command so this overlay cannot
 	// redirect the next text update into the player bar.
 	return fmt.Sprintf("\x1b7\x1b[%d;%dH\x1b_Ga=T,t=d,f=100,i=%d,c=%d,r=1,z=2;%s\x1b\\\x1b8", y, x, id, width, payload), nil
+}
+
+func gradientColor(stops []color.Color, position float64) color.Color {
+	if len(stops) == 0 {
+		return color.RGBA{}
+	}
+	if len(stops) == 1 || position <= 0 {
+		return stops[0]
+	}
+	if position >= 1 {
+		return stops[len(stops)-1]
+	}
+	scaled := position * float64(len(stops)-1)
+	index := int(scaled)
+	fraction := scaled - float64(index)
+	a := color.NRGBAModel.Convert(stops[index]).(color.NRGBA)
+	b := color.NRGBAModel.Convert(stops[index+1]).(color.NRGBA)
+	lerp := func(x, y uint8) uint8 { return uint8(float64(x) + (float64(y)-float64(x))*fraction + 0.5) }
+	return color.NRGBA{R: lerp(a.R, b.R), G: lerp(a.G, b.G), B: lerp(a.B, b.B), A: lerp(a.A, b.A)}
 }
 
 func imageCanvas(img image.Image, width, height int, scale ScaleMode, cellW, cellH int) image.Image {

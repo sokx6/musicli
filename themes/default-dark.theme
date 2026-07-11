@@ -1,0 +1,14 @@
+[meta]
+name = "Default Dark"
+
+[colors]
+bg = "#1a1b26"
+fg = "#c0caf5"
+muted = "#565f89"
+accent = "#7aa2f7"
+subtle = "#292e42"
+highlight = "#bb9af7"
+
+[gradients]
+progress = ["#7aa2f7", "#bb9af7", "#f7768e"]
+spectrum = ["#565f89", "#7aa2f7", "#bb9af7", "#f7768e"]
