@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"math"
 	"math/rand/v2"
 	"net/url"
 	"os"
@@ -2179,7 +2180,10 @@ func (a *App) renderLeftPane() string {
 
 const spectrumMinWidth = 8
 const spectrumMinHeight = 3
-const spectrumHeight = 4
+const (
+	spectrumMinPreferredHeight = 5
+	spectrumMaxHeight          = 8
+)
 
 type spectrumPaneLayout struct {
 	visible              bool
@@ -2198,7 +2202,10 @@ func (a *App) spectrumLayout(w, h int) spectrumPaneLayout {
 		return spectrumPaneLayout{}
 	}
 	l := spectrumPaneLayout{visible: true}
-	spectrumH := min(spectrumHeight, h/2)
+	spectrumH := max(spectrumMinHeight, min(spectrumMaxHeight, h/3))
+	if h >= 2*spectrumMinPreferredHeight {
+		spectrumH = max(spectrumMinPreferredHeight, spectrumH)
+	}
 	if spectrumH < spectrumMinHeight {
 		return spectrumPaneLayout{}
 	}
@@ -2213,15 +2220,15 @@ func (a *App) spectrumLayout(w, h int) spectrumPaneLayout {
 		l.lyricsW = w - l.lyricsX
 		l.lyricsH = h
 	case leftContentCover:
-		l.coverW, l.coverH = w, h-spectrumH-1
-		l.spectrumY, l.spectrumW, l.spectrumH = l.coverH+1, w, spectrumH
+		l.coverW, l.coverH = w, h-spectrumH
+		l.spectrumY, l.spectrumW, l.spectrumH = l.coverH, w, spectrumH
 	default:
 		if a.options.DisableCover || a.coverImage == nil || w < 2*spectrumMinWidth+1 {
 			return spectrumPaneLayout{}
 		}
 		coverW := w / 2
-		l.coverW, l.coverH = coverW, h-spectrumH-1
-		l.spectrumY, l.spectrumW, l.spectrumH = l.coverH+1, coverW, spectrumH
+		l.coverW, l.coverH = coverW, h-spectrumH
+		l.spectrumY, l.spectrumW, l.spectrumH = l.coverH, coverW, spectrumH
 		l.lyricsX, l.lyricsW, l.lyricsH = coverW+1, w-coverW-1, h
 	}
 	if l.spectrumW < spectrumMinWidth || l.spectrumH < spectrumMinHeight {
@@ -2244,7 +2251,7 @@ func (a *App) renderLeftPaneWithSpectrum(w, h int) string {
 	}
 	cover := fitBlock(a.renderCoverPane(l.coverW, l.coverH), l.coverW, l.coverH)
 	spectrum := fitBlock(a.renderSpectrumPane(l.spectrumW, l.spectrumH), l.spectrumW, l.spectrumH)
-	left := fitBlock(lipgloss.JoinVertical(lipgloss.Left, cover, fitBlock("", l.coverW, 1), spectrum), l.coverW, h)
+	left := fitBlock(lipgloss.JoinVertical(lipgloss.Left, cover, spectrum), l.coverW, h)
 	if a.leftContent == leftContentCover {
 		return fitBlock(left, w, h)
 	}
@@ -2266,31 +2273,72 @@ func (a *App) renderSpectrumPane(w, h int) string {
 	if w < 1 || h < 1 {
 		return ""
 	}
-	levels := make([]float64, w)
+	levels := make([]float64, w*2)
 	if a.engine != nil {
-		levels = a.engine.SpectrumLevels(w)
+		levels = a.engine.SpectrumLevels(w * 2)
+	}
+	return a.renderSpectrumLevels(levels, w, h)
+}
+
+// renderSpectrumLevels packs two thin bars into each Braille cell. Color is
+// selected by row, producing a vertical gradient independent of a column's
+// current intensity.
+func (a *App) renderSpectrumLevels(levels []float64, w, h int) string {
+	if w < 1 || h < 1 {
+		return ""
 	}
 	rows := make([]string, h)
 	for y := range rows {
 		var b strings.Builder
-		threshold := float64(h-y) / float64(h)
-		for _, level := range levels {
-			if level < threshold {
+		style := a.spectrumStyleForRow(y, h)
+		for x := 0; x < w; x++ {
+			left, right := spectrumBrailleDots(levelAt(levels, x*2), levelAt(levels, x*2+1), y, h)
+			if left|right == 0 {
 				b.WriteByte(' ')
 				continue
 			}
-			switch {
-			case level > 0.72:
-				b.WriteString(a.styles.spectrumHigh.Render("█"))
-			case level > 0.38:
-				b.WriteString(a.styles.spectrumMid.Render("█"))
-			default:
-				b.WriteString(a.styles.spectrumLow.Render("█"))
-			}
+			b.WriteString(style.Render(string(rune(0x2800 + left + right))))
 		}
 		rows[y] = fitLine(b.String(), w)
 	}
 	return strings.Join(rows, "\n")
+}
+
+func (a *App) spectrumStyleForRow(row, height int) lipgloss.Style {
+	if row < height/3 {
+		return a.styles.spectrumHigh
+	}
+	if row < 2*height/3 {
+		return a.styles.spectrumMid
+	}
+	return a.styles.spectrumLow
+}
+
+func levelAt(levels []float64, index int) float64 {
+	if index < 0 || index >= len(levels) {
+		return 0
+	}
+	return levels[index]
+}
+
+func spectrumBrailleDots(left, right float64, row, height int) (int, int) {
+	// Braille has four vertical dots per column. Each terminal row represents
+	// four subrows, giving thin columns four times the former vertical detail.
+	const leftBits = 0x01 | 0x02 | 0x04 | 0x40
+	const rightBits = 0x08 | 0x10 | 0x20 | 0x80
+	filled := func(level float64, bits [4]int) int {
+		barDots := int(math.Round(level * float64(height*4)))
+		result := 0
+		for dot := 0; dot < 4; dot++ {
+			global := (height-row-1)*4 + dot
+			if global < barDots {
+				result |= bits[dot]
+			}
+		}
+		return result
+	}
+	return filled(left, [4]int{0x01, 0x02, 0x04, 0x40}) & leftBits,
+		filled(right, [4]int{0x08, 0x10, 0x20, 0x80}) & rightBits
 }
 
 func (a *App) renderCoverAndLyricsPane(w, h int) string {

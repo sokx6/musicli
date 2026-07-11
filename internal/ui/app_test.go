@@ -1600,10 +1600,60 @@ func TestSpectrumReservesKittyCoverHeight(t *testing.T) {
 	app.height = 14
 
 	seq := app.renderKittyCoverOverlay()
-	// bodyHeight is 8; spectrum reserves four rows plus one spacer, leaving
-	// three terminal cells for the cover rather than the full body height.
-	if !strings.Contains(seq, ",r=3") {
+	// The raw image must use the same cover height as the shared spectrum
+	// layout, so it cannot draw into the spectrum rows.
+	if !strings.Contains(seq, ",r=5") {
 		t.Fatalf("kitty cover does not reserve spectrum rows: %q", seq)
+	}
+}
+
+func TestSpectrumLayoutUsesTallerAttachedCoverArea(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{SpectrumEnabled: true})
+	app.leftContent = leftContentCover
+	layout := app.spectrumLayout(30, 20)
+	if !layout.visible {
+		t.Fatal("spectrum unexpectedly hidden")
+	}
+	if layout.spectrumH < 5 || layout.spectrumH > 8 {
+		t.Fatalf("spectrum height = %d, want 5..8", layout.spectrumH)
+	}
+	if layout.coverH+layout.spectrumH != 20 {
+		t.Fatalf("cover (%d) and spectrum (%d) should be attached within 20 rows", layout.coverH, layout.spectrumH)
+	}
+}
+
+func TestRenderSpectrumPaneUsesBrailleAndVerticalGradient(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	levels := []float64{1, 1, 1, 1}
+	rendered := app.renderSpectrumLevels(levels, 8, 4)
+	if strings.Contains(rendered, "█") {
+		t.Fatalf("spectrum uses block columns instead of braille: %q", rendered)
+	}
+	if !strings.Contains(rendered, "⣿") {
+		t.Fatalf("spectrum does not contain braille columns: %q", rendered)
+	}
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != 4 {
+		t.Fatalf("spectrum rows = %d, want 4", len(lines))
+	}
+	for i, line := range lines {
+		if got := ansi.StringWidth(line); got != 8 {
+			t.Fatalf("spectrum row %d width = %d, want 8", i, got)
+		}
+	}
+	if !strings.Contains(lines[0], "122;162;247") || !strings.Contains(lines[3], "86;95;137") {
+		t.Fatalf("gradient colors must follow row height, got top=%q bottom=%q", lines[0], lines[3])
+	}
+}
+
+func TestSpectrumBrailleDotsUsesBothThinColumns(t *testing.T) {
+	left, right := spectrumBrailleDots(1, 0, 3, 4)
+	if left == 0 || right != 0 {
+		t.Fatalf("left-only bars = (%#x, %#x), want left dots only", left, right)
+	}
+	left, right = spectrumBrailleDots(0, 1, 3, 4)
+	if left != 0 || right == 0 {
+		t.Fatalf("right-only bars = (%#x, %#x), want right dots only", left, right)
 	}
 }
 
