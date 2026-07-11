@@ -125,6 +125,7 @@ type Options struct {
 	PlaybackShuffle            bool
 	LyricsAlign                string
 	LyricsHighlightMode        string
+	SpectrumEnabled            bool
 	PlaylistStore              *playlist.Store
 	MPRISSink                  func(mpris.Snapshot)
 }
@@ -218,6 +219,7 @@ type App struct {
 	coverScale           coverScaleMode
 	lyricAlign           lyricAlignMode
 	lyricHighlight       lyricHighlightMode
+	spectrumEnabled      bool
 	coverProtocol        string
 	cellPixelW           int
 	cellPixelH           int
@@ -307,6 +309,7 @@ func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *
 		coverScale:          coverScale,
 		lyricAlign:          lyricAlign,
 		lyricHighlight:      lyricHighlight,
+		spectrumEnabled:     opts.SpectrumEnabled,
 		coverProtocol:       coverProtocol,
 		playlists:           opts.PlaylistStore,
 		playlistNameInput:   playlistNameInput,
@@ -750,6 +753,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.ToggleLyricHighlight):
 		fl.Debug("key matched", "key", keyStr, "action", "toggleLyricHighlight")
 		a.toggleLyricHighlight()
+		return a, nil
+
+	case key.Matches(msg, a.keys.ToggleSpectrum):
+		fl.Debug("key matched", "key", keyStr, "action", "toggleSpectrum")
+		a.spectrumEnabled = !a.spectrumEnabled
 		return a, nil
 
 	case key.Matches(msg, a.keys.ToggleView):
@@ -2156,6 +2164,9 @@ func (a *App) renderLeftPane() string {
 	if contentH < 1 {
 		contentH = 1
 	}
+	if a.spectrumEnabled {
+		return a.renderLeftPaneWithSpectrum(contentW, contentH)
+	}
 	switch a.leftContent {
 	case leftContentCover:
 		return a.renderCoverPane(contentW, contentH)
@@ -2164,6 +2175,122 @@ func (a *App) renderLeftPane() string {
 	default:
 		return a.renderCoverAndLyricsPane(contentW, contentH)
 	}
+}
+
+const spectrumMinWidth = 8
+const spectrumMinHeight = 3
+const spectrumHeight = 4
+
+type spectrumPaneLayout struct {
+	visible              bool
+	coverX, coverY       int
+	coverW, coverH       int
+	lyricsX, lyricsY     int
+	lyricsW, lyricsH     int
+	spectrumX, spectrumY int
+	spectrumW, spectrumH int
+}
+
+// spectrumLayout owns all left-pane geometry. Each rectangle is disjoint so
+// a resize cannot place the cover, lyrics, and spectrum on top of one another.
+func (a *App) spectrumLayout(w, h int) spectrumPaneLayout {
+	if !a.spectrumEnabled || w < spectrumMinWidth || h < spectrumMinHeight {
+		return spectrumPaneLayout{}
+	}
+	l := spectrumPaneLayout{visible: true}
+	spectrumH := min(spectrumHeight, h/2)
+	if spectrumH < spectrumMinHeight {
+		return spectrumPaneLayout{}
+	}
+	switch a.leftContent {
+	case leftContentLyrics:
+		if w < 2*spectrumMinWidth+1 {
+			return spectrumPaneLayout{}
+		}
+		l.spectrumW = w / 2
+		l.spectrumH = h
+		l.lyricsX = l.spectrumW + 1
+		l.lyricsW = w - l.lyricsX
+		l.lyricsH = h
+	case leftContentCover:
+		l.coverW, l.coverH = w, h-spectrumH-1
+		l.spectrumY, l.spectrumW, l.spectrumH = l.coverH+1, w, spectrumH
+	default:
+		if a.options.DisableCover || a.coverImage == nil || w < 2*spectrumMinWidth+1 {
+			return spectrumPaneLayout{}
+		}
+		coverW := w / 2
+		l.coverW, l.coverH = coverW, h-spectrumH-1
+		l.spectrumY, l.spectrumW, l.spectrumH = l.coverH+1, coverW, spectrumH
+		l.lyricsX, l.lyricsW, l.lyricsH = coverW+1, w-coverW-1, h
+	}
+	if l.spectrumW < spectrumMinWidth || l.spectrumH < spectrumMinHeight {
+		return spectrumPaneLayout{}
+	}
+	return l
+}
+
+func (a *App) renderLeftPaneWithSpectrum(w, h int) string {
+	l := a.spectrumLayout(w, h)
+	if !l.visible {
+		return a.renderLeftPaneWithoutSpectrum(w, h)
+	}
+	if a.leftContent == leftContentLyrics {
+		return fitBlock(lipgloss.JoinHorizontal(lipgloss.Top,
+			fitBlock(a.renderSpectrumPane(l.spectrumW, l.spectrumH), l.spectrumW, l.spectrumH),
+			fitBlock("", 1, h),
+			fitBlock(a.renderLyricsOrPlaceholder(l.lyricsW, l.lyricsH), l.lyricsW, l.lyricsH),
+		), w, h)
+	}
+	cover := fitBlock(a.renderCoverPane(l.coverW, l.coverH), l.coverW, l.coverH)
+	spectrum := fitBlock(a.renderSpectrumPane(l.spectrumW, l.spectrumH), l.spectrumW, l.spectrumH)
+	left := fitBlock(lipgloss.JoinVertical(lipgloss.Left, cover, fitBlock("", l.coverW, 1), spectrum), l.coverW, h)
+	if a.leftContent == leftContentCover {
+		return fitBlock(left, w, h)
+	}
+	return fitBlock(lipgloss.JoinHorizontal(lipgloss.Top, left, fitBlock("", 1, h), fitBlock(a.renderLyricsOrPlaceholder(l.lyricsW, l.lyricsH), l.lyricsW, l.lyricsH)), w, h)
+}
+
+func (a *App) renderLeftPaneWithoutSpectrum(w, h int) string {
+	switch a.leftContent {
+	case leftContentCover:
+		return a.renderCoverPane(w, h)
+	case leftContentLyrics:
+		return a.renderLyricsOrPlaceholder(w, h)
+	default:
+		return a.renderCoverAndLyricsPane(w, h)
+	}
+}
+
+func (a *App) renderSpectrumPane(w, h int) string {
+	if w < 1 || h < 1 {
+		return ""
+	}
+	levels := make([]float64, w)
+	if a.engine != nil {
+		levels = a.engine.SpectrumLevels(w)
+	}
+	rows := make([]string, h)
+	for y := range rows {
+		var b strings.Builder
+		threshold := float64(h-y) / float64(h)
+		for _, level := range levels {
+			if level < threshold {
+				b.WriteByte(' ')
+				continue
+			}
+			switch {
+			case level > 0.72:
+				b.WriteString(a.styles.spectrumHigh.Render("█"))
+			case level > 0.38:
+				b.WriteString(a.styles.spectrumMid.Render("█"))
+			default:
+				b.WriteString(a.styles.spectrumLow.Render("█"))
+			}
+		}
+		rows[y] = fitLine(b.String(), w)
+	}
+	return strings.Join(rows, "\n")
 }
 
 func (a *App) renderCoverAndLyricsPane(w, h int) string {
@@ -2230,6 +2357,13 @@ func (a *App) renderKittyCoverOverlay() string {
 	coverW := w
 	if a.leftContent == leftContentBoth && w >= 12 {
 		coverW = w / 2
+	}
+	if a.spectrumEnabled {
+		layout := a.spectrumLayout(w, h)
+		if layout.visible && a.leftContent != leftContentLyrics {
+			coverW = layout.coverW
+			h = layout.coverH
+		}
 	}
 	if coverW < 1 {
 		return cover.ClearKittyImage(kittyImageID)
@@ -2696,9 +2830,9 @@ func (a *App) renderPlayerHelpLine(width int) string {
 		width = 1
 	}
 	candidates := []string{
-		"q quit  ⏎ play  ␣ pause  n/b next/prev  p playlists  f favorite  m add  r repeat  s shuffle  a align  h highlight  v view  c scale  ←→ seek  / filter",
-		"q quit  ⏎ play  ␣ pause  n/b  r repeat  s shuffle  a align  h highlight",
-		"q  ⏎  ␣  n/b  r  s  a  h",
+		"q quit  ⏎ play  ␣ pause  n/b next/prev  p playlists  f favorite  m add  r repeat  s shuffle  a align  h highlight  z spectrum  v view  c scale  ←→ seek  / filter",
+		"q quit  ⏎ play  ␣ pause  n/b  r repeat  s shuffle  a align  h highlight  z spectrum",
+		"q  ⏎  ␣  n/b  r  s  a  h  z",
 		"q ⏎ ␣",
 		"",
 	}

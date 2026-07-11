@@ -85,10 +85,12 @@ type Engine struct {
 	pausedAccum   time.Duration // total time spent paused since playStartWall
 
 	// current playback goroutine control
-	ffmpegCmd    *exec.Cmd
-	player       *oto.Player   // current oto player (for immediate pause/mute)
-	readerDone   chan struct{} // closed when reader goroutine exits
-	cancelReader context.CancelFunc
+	ffmpegCmd     *exec.Cmd
+	player        *oto.Player   // current oto player (for immediate pause/mute)
+	readerDone    chan struct{} // closed when reader goroutine exits
+	cancelReader  context.CancelFunc
+	spectrum      *SpectrumAnalyzer
+	spectrumEpoch uint64
 }
 
 // New creates an Engine. The oto context is created once here and reused
@@ -106,13 +108,26 @@ func New(ctx context.Context, logger *log.Logger) (*Engine, error) {
 	l := logger.WithModule("audio").WithFunc("New")
 	l.Debug("oto context ready", "sample_rate", SampleRate, "channels", ChannelCount, "format", "s16le")
 	l.Debug("oto context created", "ready", true)
+	spectrum, err := NewSpectrumAnalyzer()
+	if err != nil {
+		return nil, fmt.Errorf("create spectrum analyzer: %w", err)
+	}
 	return &Engine{
-		log:    l,
-		oto:    otoCtx,
-		state:  StateStopped,
-		speed:  1.0,
-		volume: 1.0,
+		log:      l,
+		oto:      otoCtx,
+		spectrum: spectrum,
+		state:    StateStopped,
+		speed:    1.0,
+		volume:   1.0,
 	}, nil
+}
+
+// SpectrumLevels returns the latest PCM spectrum for UI display.
+func (e *Engine) SpectrumLevels(bands int) []float64 {
+	if e == nil || e.spectrum == nil {
+		return make([]float64, max(0, bands))
+	}
+	return e.spectrum.Levels(bands)
 }
 
 // Play starts playback of path from the beginning. Any current playback is
@@ -413,6 +428,11 @@ func (e *Engine) startFFmpeg(offsetMs int) error {
 	path := e.path
 	speed := e.speed
 	vol := e.volume
+	e.spectrumEpoch++
+	spectrumEpoch := e.spectrumEpoch
+	if e.spectrum != nil {
+		e.spectrum.Reset()
+	}
 	e.mu.Unlock()
 
 	atempo := fmt.Sprintf("atempo=%.3f", speed)
@@ -464,7 +484,7 @@ func (e *Engine) startFFmpeg(offsetMs int) error {
 	e.cancelReader = cancel
 	e.mu.Unlock()
 
-	go e.readerLoop(readerCtx, cmd, player, stdout, pr, pw, done, path)
+	go e.readerLoop(readerCtx, cmd, player, stdout, pr, pw, done, path, spectrumEpoch)
 	fl.Debug("reader goroutine launched", "pid", cmd.Process.Pid)
 	return nil
 }
@@ -472,7 +492,7 @@ func (e *Engine) startFFmpeg(offsetMs int) error {
 // readerLoop copies ffmpeg stdout into the oto pipe and waits for ffmpeg to
 // exit. It signals completion via done. On track end (ffmpeg exits cleanly)
 // the state moves to Stopped.
-func (e *Engine) readerLoop(ctx context.Context, cmd *exec.Cmd, player *oto.Player, stdout io.ReadCloser, pr *io.PipeReader, pw *io.PipeWriter, done chan struct{}, path string) {
+func (e *Engine) readerLoop(ctx context.Context, cmd *exec.Cmd, player *oto.Player, stdout io.ReadCloser, pr *io.PipeReader, pw *io.PipeWriter, done chan struct{}, path string, spectrumEpoch uint64) {
 	fl := e.log.WithFunc("readerLoop")
 	defer close(done)
 	defer stdout.Close()
@@ -480,7 +500,26 @@ func (e *Engine) readerLoop(ctx context.Context, cmd *exec.Cmd, player *oto.Play
 	defer pw.Close()
 
 	fl.Debug("io.Copy starting", "path", path)
-	n, copyErr := io.Copy(pw, stdout)
+	buf := make([]byte, 32*1024)
+	var n int64
+	var copyErr error
+	for {
+		readN, readErr := stdout.Read(buf)
+		if readN > 0 {
+			n += int64(readN)
+			e.writeSpectrumPCM(spectrumEpoch, buf[:readN])
+			if _, err := pw.Write(buf[:readN]); err != nil {
+				copyErr = err
+				break
+			}
+		}
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				copyErr = readErr
+			}
+			break
+		}
+	}
 	fl.Debug("pcm copy finished", "path", path, "bytes", n, "copy_err", copyErr)
 
 	fl.Debug("closing pipe writer")
@@ -514,6 +553,16 @@ func (e *Engine) readerLoop(ctx context.Context, cmd *exec.Cmd, player *oto.Play
 	fl.Debug("track ended naturally", "path", path, "bytes_copied", n, "is_playing", player.IsPlaying())
 }
 
+func (e *Engine) writeSpectrumPCM(epoch uint64, pcm []byte) {
+	e.mu.Lock()
+	current := e.spectrumEpoch == epoch
+	spectrum := e.spectrum
+	e.mu.Unlock()
+	if current && spectrum != nil {
+		spectrum.WritePCM(pcm)
+	}
+}
+
 // stopInternal kills the current ffmpeg (if any), cancels the reader, and
 // waits for the goroutine to exit. reap=true waits synchronously; this is
 // called on every seek/play/stop to prevent zombie processes (oracle Risk-B)
@@ -529,6 +578,10 @@ func (e *Engine) stopInternal(reap bool) {
 	e.player = nil
 	e.readerDone = nil
 	e.cancelReader = nil
+	e.spectrumEpoch++
+	if e.spectrum != nil {
+		e.spectrum.Reset()
+	}
 	e.mu.Unlock()
 
 	if cmd == nil {

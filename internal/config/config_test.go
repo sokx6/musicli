@@ -49,6 +49,9 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	if c.Lyrics.HighlightMode != "played" {
 		t.Errorf("default lyrics highlight_mode = %q, want played", c.Lyrics.HighlightMode)
 	}
+	if c.Spectrum.Enabled {
+		t.Error("default spectrum enabled = true, want false")
+	}
 	if !c.DBus.MPRIS {
 		t.Errorf("default dbus.mpris = false, want true")
 	}
@@ -244,6 +247,23 @@ func TestLoadRejectsInvalidLyricHighlightMode(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(warnings, "\n"), "lyrics.highlight_mode") {
 		t.Fatalf("warnings = %v, want lyrics.highlight_mode warning", warnings)
+	}
+}
+
+func TestLoadAcceptsSpectrumEnabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[spectrum]\nenabled = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if !c.Spectrum.Enabled {
+		t.Fatal("spectrum enabled = false, want true")
 	}
 }
 

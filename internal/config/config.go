@@ -19,6 +19,7 @@ type Config struct {
 	Playback    Playback    `toml:"playback"`
 	Library     Library     `toml:"library"`
 	Lyrics      Lyrics      `toml:"lyrics"`
+	Spectrum    Spectrum    `toml:"spectrum"`
 	Cover       Cover       `toml:"cover"`
 	DBus        DBus        `toml:"dbus"`
 	Theme       Theme       `toml:"theme"`
@@ -54,6 +55,10 @@ type Lyrics struct {
 	SaveDir       string   `toml:"save_dir"`
 	Align         string   `toml:"align"`
 	HighlightMode string   `toml:"highlight_mode"`
+}
+
+type Spectrum struct {
+	Enabled bool `toml:"enabled"`
 }
 
 type Cover struct {

@@ -20,16 +20,19 @@ import (
 
 // Styles holds lipgloss styles derived from the current theme.
 type Styles struct {
-	theme     *theme.Theme
-	doc       lipgloss.Style
-	topBar    lipgloss.Style
-	leftPane  lipgloss.Style
-	rightPane lipgloss.Style
-	player    lipgloss.Style
-	title     lipgloss.Style
-	muted     lipgloss.Style
-	accent    lipgloss.Style
-	help      lipgloss.Style
+	theme        *theme.Theme
+	doc          lipgloss.Style
+	topBar       lipgloss.Style
+	leftPane     lipgloss.Style
+	rightPane    lipgloss.Style
+	player       lipgloss.Style
+	title        lipgloss.Style
+	muted        lipgloss.Style
+	accent       lipgloss.Style
+	help         lipgloss.Style
+	spectrumLow  lipgloss.Style
+	spectrumMid  lipgloss.Style
+	spectrumHigh lipgloss.Style
 }
 
 // NewStyles builds styles from a theme. No backgrounds — transparent,
@@ -57,6 +60,11 @@ func NewStyles(t *theme.Theme) *Styles {
 		muted:  lipgloss.NewStyle().Foreground(t.Muted),
 		accent: lipgloss.NewStyle().Foreground(t.Accent),
 		help:   lipgloss.NewStyle().Foreground(t.Muted),
+		// Kept separate from the FFT/rendering path so theme configuration can
+		// replace these colors without changing spectrum behavior.
+		spectrumLow:  lipgloss.NewStyle().Foreground(t.Muted),
+		spectrumMid:  lipgloss.NewStyle().Foreground(t.Highlight),
+		spectrumHigh: lipgloss.NewStyle().Foreground(t.Accent),
 	}
 }
 
@@ -112,6 +120,7 @@ type keyMap struct {
 	ToggleShuffle        key.Binding
 	ToggleLyricAlign     key.Binding
 	ToggleLyricHighlight key.Binding
+	ToggleSpectrum       key.Binding
 	ToggleView           key.Binding
 	ToggleScale          key.Binding
 	ToggleList           key.Binding
@@ -146,6 +155,7 @@ func defaultKeyMap() keyMap {
 		ToggleShuffle:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "shuffle")),
 		ToggleLyricAlign:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "align lyrics")),
 		ToggleLyricHighlight: key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "highlight lyrics")),
+		ToggleSpectrum:       key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "spectrum")),
 		ToggleView:           key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cover/lyrics")),
 		ToggleScale:          key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "cover scale")),
 		ToggleList:           key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "tracks/albums")),

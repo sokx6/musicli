@@ -24,6 +24,9 @@ save_dir = ""        # empty = ~/.cache/musicli/lyrics
 align = "left"       # left | center | right
 highlight_mode = "played" # played | current; played includes every word that has started
 
+[spectrum]
+enabled = false       # show the responsive PCM spectrum at startup; z toggles for this session
+
 [cover]
 show = true
 protocol = "auto"    # auto | kitty | sixel | iterm | halfblock

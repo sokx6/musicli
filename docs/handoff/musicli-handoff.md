@@ -267,6 +267,13 @@ ui → {audio, library, playlist, lyrics, cover, theme}  # 唯一依赖 bubblete
 - `m` 在曲目列表选择目标歌单并加入选中歌曲；`N` 在歌单列表创建新歌单
 - 歌单曲目视图中 `x` 移除选中歌曲，`o` 按当前曲目标题排序；歌单列表中 `d` 删除用户歌单
 
+### 阶段 9: 频谱可视化
+- `internal/audio` 从 ffmpeg PCM reader 维护有界的最近采样窗口；频谱分析不使用通道或额外播放 goroutine，不能阻塞音频输出
+- 使用 Hann 窗 + `algo-fft` 实数 FFT，将结果映射为对数频段；切歌、暂停、停止以及旧 reader 都不会保留上一首的频谱
+- `[spectrum] enabled = false` 控制启动默认；`z` 仅切换当前会话
+- 开启后频谱是左栏独立分区：封面+歌词、只封面时在封面下方；只歌词时占用原封面侧。空间不足时自动隐藏，不与封面或歌词重合
+- 频谱低/中/高强度使用独立样式，为阶段 10 的主题配色预留入口
+
 ## 7. 日志系统
 
 ### 格式
@@ -317,6 +324,9 @@ auto_fetch = false
 sources = ["lrclib", "qq", "netease", "kugou"]
 save_dir = ""        # empty = ~/.cache/musicli/lyrics
 align = "left"       # left | center | right
+
+[spectrum]
+enabled = false       # z toggles for the current session
 
 [cover]
 show = true

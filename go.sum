@@ -28,6 +28,10 @@ github.com/clipperhouse/displaywidth v0.11.0 h1:lBc6kY44VFw+TDx4I8opi/EtL9m20WSE
 github.com/clipperhouse/displaywidth v0.11.0/go.mod h1:bkrFNkf81G8HyVqmKGxsPufD3JhNl3dSqnGhOoSD/o0=
 github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJv2v7Vk=
 github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
+github.com/cwbudde/algo-dsp v0.5.1 h1:sxutbi6bMWPnjWjc41q7O12dGsbKdlwIS23V5H+imzY=
+github.com/cwbudde/algo-dsp v0.5.1/go.mod h1:cDRwoYw/6i3QKFLXDUuZa2AqeMnzb0u7Yn+nZV6Tl4U=
+github.com/cwbudde/algo-fft v0.6.15 h1:1K9sUQs92cd3Ytgoh9PeSczW9NUkG45n1m2Mo2sW4YU=
+github.com/cwbudde/algo-fft v0.6.15/go.mod h1:H5rJ7JNXvhe3kT4yc41TJB9DEnO7KlhHN7toLO+ZZXU=
 github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8 h1:OtSeLS5y0Uy01jaKK4mA/WVIYtpzVm63vLVAPzJXigg=
 github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8/go.mod h1:apkPC/CR3s48O2D7Y++n1XWEpgPNNCjXYga3PPbJe2E=
 github.com/ebitengine/oto/v3 v3.4.0 h1:br0PgASsEWaoWn38b2Goe7m1GKFYfNgnsjSd5Gg+/bQ=

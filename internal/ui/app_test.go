@@ -1522,6 +1522,91 @@ func TestLyricAlignmentDoesNotEnterCoverPane(t *testing.T) {
 	}
 }
 
+func TestSpectrumLayoutNeverOverlapsLyricsOrCover(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{SpectrumEnabled: true})
+	app.leftW = 40
+	app.height = 14
+	app.coverImage = testCoverImage(8, 8)
+	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{{StartMs: 0, EndMs: 1000, Text: "lyrics"}}}
+
+	for _, mode := range []leftContentMode{leftContentBoth, leftContentCover, leftContentLyrics} {
+		app.leftContent = mode
+		layout := app.spectrumLayout(38, 8)
+		if !layout.visible {
+			t.Fatalf("mode %d unexpectedly hid spectrum", mode)
+		}
+		if layout.spectrumW < 1 || layout.spectrumH < 1 {
+			t.Fatalf("mode %d invalid spectrum size: %#v", mode, layout)
+		}
+		if layout.lyricsW > 0 && layout.spectrumX+layout.spectrumW > layout.lyricsX {
+			t.Fatalf("mode %d spectrum overlaps lyrics: %#v", mode, layout)
+		}
+		if layout.coverW > 0 && layout.spectrumY < layout.coverY+layout.coverH && layout.spectrumX < layout.coverX+layout.coverW {
+			t.Fatalf("mode %d spectrum overlaps cover: %#v", mode, layout)
+		}
+	}
+}
+
+func TestSpectrumLayoutHidesWhenPaneIsTooSmall(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{SpectrumEnabled: true})
+	app.leftContent = leftContentBoth
+	if layout := app.spectrumLayout(11, 3); layout.visible {
+		t.Fatalf("small layout unexpectedly visible: %#v", layout)
+	}
+}
+
+func TestSpectrumKeyTogglesVisibility(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	if app.spectrumEnabled {
+		t.Fatal("initial spectrum = enabled, want disabled")
+	}
+	_, _ = app.handleKey(tea.KeyPressMsg(tea.Key{Text: "z", Code: 'z'}))
+	if !app.spectrumEnabled {
+		t.Fatal("spectrum after z = disabled, want enabled")
+	}
+}
+
+func TestRenderSpectrumPaneFitsAssignedDimensions(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{SpectrumEnabled: true})
+	rendered := app.renderSpectrumPane(12, 4)
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != 4 {
+		t.Fatalf("spectrum rows = %d, want 4: %q", len(lines), rendered)
+	}
+	for i, line := range lines {
+		if got := ansi.StringWidth(line); got != 12 {
+			t.Fatalf("spectrum row %d width = %d, want 12: %q", i, got, line)
+		}
+	}
+}
+
+func TestSpectrumFallbackDoesNotChangeEnabledState(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{SpectrumEnabled: true})
+	app.leftContent = leftContentBoth
+	_ = app.renderLeftPaneWithSpectrum(11, 3)
+	if !app.spectrumEnabled {
+		t.Fatal("small layout changed persistent spectrum setting")
+	}
+}
+
+func TestSpectrumReservesKittyCoverHeight(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		SpectrumEnabled: true,
+		CoverProtocol:   "kitty",
+	})
+	app.coverImage = testCoverImage(8, 8)
+	app.leftContent = leftContentCover
+	app.leftW = 20
+	app.height = 14
+
+	seq := app.renderKittyCoverOverlay()
+	// bodyHeight is 8; spectrum reserves four rows plus one spacer, leaving
+	// three terminal cells for the cover rather than the full body height.
+	if !strings.Contains(seq, ",r=3") {
+		t.Fatalf("kitty cover does not reserve spectrum rows: %q", seq)
+	}
+}
+
 func TestGroupByAlbumOptionDefaultsToAlbumView(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
 		GroupByAlbum: true,
