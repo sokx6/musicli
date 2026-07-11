@@ -47,6 +47,11 @@ const (
 	// PCM spectrum track audible output closely without risking frequent
 	// underruns on normal desktop audio devices.
 	playerBufferSizeBytes = SampleRate * ChannelCount * BitDepthInBytes / 10
+
+	// Feed the spectrum in 21ms slices instead of the former 171ms reader
+	// chunks. Small, regular updates prevent FFT windows from drifting across
+	// short rhythmic pulses while remaining far below audio I/O overhead.
+	spectrumPCMChunkSize = 4 * 1024
 )
 
 // State is the playback state.
@@ -506,7 +511,7 @@ func (e *Engine) readerLoop(ctx context.Context, cmd *exec.Cmd, player *oto.Play
 	defer pw.Close()
 
 	fl.Debug("io.Copy starting", "path", path)
-	buf := make([]byte, 32*1024)
+	buf := make([]byte, spectrumPCMChunkSize)
 	var n int64
 	var copyErr error
 	for {

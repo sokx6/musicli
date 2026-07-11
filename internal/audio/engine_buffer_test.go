@@ -8,3 +8,10 @@ func TestPlayerBufferTargetsOneHundredMilliseconds(t *testing.T) {
 		t.Fatalf("player buffer = %d bytes, want %d", playerBufferSizeBytes, want)
 	}
 }
+
+func TestSpectrumPCMChunksAreNoLongerThanOneFFTWindow(t *testing.T) {
+	fftWindowBytes := SpectrumFFTSize * ChannelCount * BitDepthInBytes
+	if spectrumPCMChunkSize > fftWindowBytes {
+		t.Fatalf("spectrum chunk = %d bytes, want <= one FFT window (%d)", spectrumPCMChunkSize, fftWindowBytes)
+	}
+}
