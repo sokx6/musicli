@@ -19,6 +19,7 @@ profile.cov
 
 # build output
 bin/
+musicli
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
