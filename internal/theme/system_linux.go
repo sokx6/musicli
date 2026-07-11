@@ -37,7 +37,7 @@ func portalMode() (Mode, error) {
 	if err != nil {
 		return ModeDark, err
 	}
-	if scheme, ok := value.Value().(uint32); ok {
+	if scheme, ok := portalScheme(value); ok {
 		return modeFromPortalScheme(scheme), nil
 	}
 	return ModeDark, nil
@@ -50,6 +50,21 @@ func modeFromPortalScheme(scheme uint32) Mode {
 		return ModeLight
 	}
 	return ModeDark
+}
+
+// portalScheme unwraps the variant returned by the portal settings API. The
+// API commonly returns a variant containing another typed variant.
+func portalScheme(value dbus.Variant) (uint32, bool) {
+	raw := value.Value()
+	for {
+		nested, ok := raw.(dbus.Variant)
+		if !ok {
+			break
+		}
+		raw = nested.Value()
+	}
+	scheme, ok := raw.(uint32)
+	return scheme, ok
 }
 
 func watchSystemMode(ctx context.Context, send func(Mode)) {
@@ -127,7 +142,10 @@ func watchPortalMode(ctx context.Context, send func(Mode)) bool {
 			if !ok {
 				continue
 			}
-			scheme, _ := value.Value().(uint32)
+			scheme, ok := portalScheme(value)
+			if !ok {
+				continue
+			}
 			notify(modeFromPortalScheme(scheme))
 		}
 	}
