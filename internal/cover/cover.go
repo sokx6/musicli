@@ -209,6 +209,13 @@ func coverDrawSize(bounds image.Rectangle, width, height int, mode ScaleMode, ce
 	return cellsW, cellsH
 }
 
+// DrawSize returns the terminal-cell area occupied by artwork inside bounds.
+// It is shared by text and graphics renderers so callers can place adjacent
+// content directly below a fit-scaled cover.
+func DrawSize(bounds image.Rectangle, width, height int, mode ScaleMode, cellW, cellH int) (int, int) {
+	return coverDrawSize(bounds, width, height, mode, cellW, cellH)
+}
+
 func sample(img image.Image, x, y, width, height int) color.RGBA {
 	bounds := img.Bounds()
 	srcX := bounds.Min.X + x*bounds.Dx()/max(1, width)

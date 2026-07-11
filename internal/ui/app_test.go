@@ -1507,7 +1507,7 @@ func TestRenderLyricsPaneAlignsWithinLyricsWidth(t *testing.T) {
 func TestLyricAlignmentDoesNotEnterCoverPane(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	app.leftContent = leftContentBoth
-	app.coverImage = testCoverImage(8, 8)
+	app.coverImage = image.NewRGBA(image.Rect(0, 0, 16, 4))
 	app.lyricAlign = lyricAlignRight
 	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{{StartMs: 0, EndMs: 1000, Text: "lyric"}}}
 	app.pos = 0
@@ -1527,7 +1527,7 @@ func TestSpectrumLayoutNeverOverlapsLyricsOrCover(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{SpectrumEnabled: true})
 	app.leftW = 40
 	app.height = 14
-	app.coverImage = testCoverImage(8, 8)
+	app.coverImage = image.NewRGBA(image.Rect(0, 0, 16, 4))
 	app.lyric = &lyrics.Lyric{Lines: []lyrics.Line{{StartMs: 0, EndMs: 1000, Text: "lyrics"}}}
 
 	for _, mode := range []leftContentMode{leftContentBoth, leftContentCover, leftContentLyrics} {
@@ -1595,7 +1595,7 @@ func TestSpectrumReservesKittyCoverHeight(t *testing.T) {
 		SpectrumEnabled: true,
 		CoverProtocol:   "kitty",
 	})
-	app.coverImage = testCoverImage(8, 8)
+	app.coverImage = image.NewRGBA(image.Rect(0, 0, 16, 4))
 	app.leftContent = leftContentCover
 	app.leftW = 20
 	app.height = 14
@@ -1603,23 +1603,43 @@ func TestSpectrumReservesKittyCoverHeight(t *testing.T) {
 	seq := app.renderKittyCoverOverlay()
 	// The raw image must use the same cover height as the shared spectrum
 	// layout, so it cannot draw into the spectrum rows.
-	if !strings.Contains(seq, ",r=5") {
+	if !strings.Contains(seq, ",r=3") {
 		t.Fatalf("kitty cover does not reserve spectrum rows: %q", seq)
 	}
 }
 
-func TestSpectrumLayoutUsesTallerAttachedCoverArea(t *testing.T) {
+func TestSpectrumLayoutFillsSpaceBelowFitCover(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{SpectrumEnabled: true})
 	app.leftContent = leftContentCover
+	app.coverImage = image.NewRGBA(image.Rect(0, 0, 16, 4))
 	layout := app.spectrumLayout(30, 20)
 	if !layout.visible {
 		t.Fatal("spectrum unexpectedly hidden")
 	}
-	if layout.spectrumH < 5 || layout.spectrumH > 8 {
-		t.Fatalf("spectrum height = %d, want 5..8", layout.spectrumH)
+	if layout.coverH != 4 {
+		t.Fatalf("fit cover height = %d, want 4", layout.coverH)
 	}
-	if layout.coverH+layout.spectrumH != 20 {
-		t.Fatalf("cover (%d) and spectrum (%d) should be attached within 20 rows", layout.coverH, layout.spectrumH)
+	if layout.spectrumY != layout.coverH || layout.spectrumH != 16 {
+		t.Fatalf("spectrum should fill below cover: %#v", layout)
+	}
+}
+
+func TestSpectrumLayoutReservesMinimumBelowStretchCover(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{SpectrumEnabled: true, CoverScale: "stretch"})
+	app.leftContent = leftContentCover
+	app.coverImage = testCoverImage(8, 8)
+	layout := app.spectrumLayout(30, 20)
+	if !layout.visible || layout.spectrumH != spectrumMinHeight || layout.coverH != 20-spectrumMinHeight {
+		t.Fatalf("stretch layout = %#v, want minimum spectrum below cover", layout)
+	}
+}
+
+func TestSpectrumLayoutHidesWhenFitCoverLeavesTooLittleSpace(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{SpectrumEnabled: true})
+	app.leftContent = leftContentCover
+	app.coverImage = image.NewRGBA(image.Rect(0, 0, 4, 16))
+	if layout := app.spectrumLayout(20, 5); layout.visible {
+		t.Fatalf("fit cover with no spectrum space = %#v, want hidden", layout)
 	}
 }
 

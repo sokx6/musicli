@@ -2181,10 +2181,6 @@ func (a *App) renderLeftPane() string {
 
 const spectrumMinWidth = 8
 const spectrumMinHeight = 3
-const (
-	spectrumMinPreferredHeight = 5
-	spectrumMaxHeight          = 8
-)
 
 type spectrumPaneLayout struct {
 	visible              bool
@@ -2203,13 +2199,6 @@ func (a *App) spectrumLayout(w, h int) spectrumPaneLayout {
 		return spectrumPaneLayout{}
 	}
 	l := spectrumPaneLayout{visible: true}
-	spectrumH := max(spectrumMinHeight, min(spectrumMaxHeight, h/3))
-	if h >= 2*spectrumMinPreferredHeight {
-		spectrumH = max(spectrumMinPreferredHeight, spectrumH)
-	}
-	if spectrumH < spectrumMinHeight {
-		return spectrumPaneLayout{}
-	}
 	switch a.leftContent {
 	case leftContentLyrics:
 		if w < 2*spectrumMinWidth+1 {
@@ -2221,21 +2210,33 @@ func (a *App) spectrumLayout(w, h int) spectrumPaneLayout {
 		l.lyricsW = w - l.lyricsX
 		l.lyricsH = h
 	case leftContentCover:
-		l.coverW, l.coverH = w, h-spectrumH
-		l.spectrumY, l.spectrumW, l.spectrumH = l.coverH, w, spectrumH
+		l.coverW = w
+		l.coverH = a.coverHeightAboveSpectrum(w, h)
+		l.spectrumY, l.spectrumW, l.spectrumH = l.coverH, w, h-l.coverH
 	default:
 		if a.options.DisableCover || a.coverImage == nil || w < 2*spectrumMinWidth+1 {
 			return spectrumPaneLayout{}
 		}
 		coverW := w / 2
-		l.coverW, l.coverH = coverW, h-spectrumH
-		l.spectrumY, l.spectrumW, l.spectrumH = l.coverH, coverW, spectrumH
+		l.coverW = coverW
+		l.coverH = a.coverHeightAboveSpectrum(coverW, h)
+		l.spectrumY, l.spectrumW, l.spectrumH = l.coverH, coverW, h-l.coverH
 		l.lyricsX, l.lyricsW, l.lyricsH = coverW+1, w-coverW-1, h
 	}
 	if l.spectrumW < spectrumMinWidth || l.spectrumH < spectrumMinHeight {
 		return spectrumPaneLayout{}
 	}
 	return l
+}
+
+func (a *App) coverHeightAboveSpectrum(width, height int) int {
+	if a.coverScale == coverScaleStretch || a.coverImage == nil {
+		return max(1, height-spectrumMinHeight)
+	}
+	_, drawH := cover.DrawSize(a.coverImage.Bounds(), width, height, a.coverScaleMode(), a.cellPixelW, a.cellPixelH)
+	// A fit cover owns exactly its visible image rows. The remaining rows
+	// belong to the spectrum, which starts at the cover's actual bottom edge.
+	return min(max(1, drawH), height)
 }
 
 func (a *App) renderLeftPaneWithSpectrum(w, h int) string {
