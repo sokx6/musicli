@@ -85,15 +85,10 @@ type UI struct {
 	SeparatorProgressThickness int    `toml:"separator_progress_thickness"`
 }
 
-type Keybindings struct {
-	PlayPause []string `toml:"play_pause"`
-	Next      []string `toml:"next"`
-	Prev      []string `toml:"prev"`
-	SeekFwd   []string `toml:"seek_fwd"`
-	SeekBack  []string `toml:"seek_back"`
-	VolUp     []string `toml:"vol_up"`
-	VolDown   []string `toml:"vol_down"`
-}
+// Keybindings maps a named UI action to one or more Bubble Tea key strings.
+// Validation of action names and collisions belongs to the UI, which owns the
+// action registry and fallback bindings.
+type Keybindings map[string][]string
 
 type Log struct {
 	Level string `toml:"level"`

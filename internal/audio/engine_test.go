@@ -62,8 +62,12 @@ func TestEnginePlayPauseStop(t *testing.T) {
 	if s := eng.State(); s != StatePlaying {
 		t.Fatalf("state = %v, want playing", s)
 	}
+	deadline := time.Now().Add(2 * time.Second)
+	for eng.Duration() <= 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if d := eng.Duration(); d <= 0 {
-		t.Errorf("duration = %d, want > 0", d)
+		t.Errorf("duration = %d after duration probe, want > 0", d)
 	}
 
 	// Let it play for 500ms

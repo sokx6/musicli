@@ -7,10 +7,14 @@
 //   - Bottom: player bar (progress + controls + state)
 //
 // Responsive: left pane hides on narrow terminals (<80 cols).
-// Keyboard + mouse supported. KeyMap is hardcoded (phase 11 adds TOML override).
+// Keyboard + mouse supported. Built-in keybindings can be overridden from TOML.
 package ui
 
 import (
+	"fmt"
+	"sort"
+	"strings"
+
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/progress"
@@ -110,7 +114,7 @@ func newProgressBar(t *theme.Theme) progress.Model {
 	return p
 }
 
-// keyMap defines the default keybindings (phase 11 adds TOML override).
+// keyMap defines the built-in keybindings and their help labels.
 type keyMap struct {
 	PlayPause            key.Binding
 	Next                 key.Binding
@@ -178,4 +182,109 @@ func defaultKeyMap() keyMap {
 		Down:                 key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
 		Filter:               key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 	}
+}
+
+func applyKeybindingOverrides(keys *keyMap, overrides map[string][]string, warn func(string, ...any)) {
+	if len(overrides) == 0 {
+		return
+	}
+	actions := make([]string, 0, len(overrides))
+	for action := range overrides {
+		actions = append(actions, action)
+	}
+	sort.Strings(actions)
+	for _, action := range actions {
+		binding := keybindingForAction(keys, action)
+		if binding == nil {
+			warn("keybinding ignored", "action", action, "reason", "unknown action")
+			continue
+		}
+		configured := overrides[action]
+		if len(configured) == 0 {
+			continue
+		}
+		candidate := make([]string, 0, len(configured))
+		valid := true
+		for _, value := range configured {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				valid = false
+				break
+			}
+			candidate = append(candidate, value)
+		}
+		if !valid {
+			warn("keybinding ignored", "action", action, "reason", "empty key")
+			continue
+		}
+		if conflict := keybindingConflict(*keys, action, candidate); conflict != "" {
+			warn("keybinding ignored", "action", action, "reason", fmt.Sprintf("conflicts with %s", conflict))
+			continue
+		}
+		binding.SetKeys(candidate...)
+		binding.SetHelp(displayKey(candidate[0]), binding.Help().Desc)
+	}
+}
+
+func keybindingConflict(keys keyMap, action string, candidate []string) string {
+	for _, other := range keybindingActions(&keys) {
+		if other.name == action {
+			continue
+		}
+		for _, want := range candidate {
+			for _, used := range other.binding.Keys() {
+				if want == used {
+					return other.name
+				}
+			}
+		}
+	}
+	return ""
+}
+
+type namedKeybinding struct {
+	name    string
+	binding *key.Binding
+}
+
+func keybindingActions(keys *keyMap) []namedKeybinding {
+	return []namedKeybinding{
+		{"play_pause", &keys.PlayPause}, {"next", &keys.Next}, {"prev", &keys.Prev},
+		{"repeat", &keys.ToggleRepeat}, {"shuffle", &keys.ToggleShuffle}, {"lyric_align", &keys.ToggleLyricAlign},
+		{"lyric_highlight", &keys.ToggleLyricHighlight}, {"spectrum", &keys.ToggleSpectrum}, {"view", &keys.ToggleView},
+		{"scale", &keys.ToggleScale}, {"list", &keys.ToggleList}, {"playlists", &keys.TogglePlaylists},
+		{"favorite", &keys.ToggleFavorite}, {"remove_playlist_track", &keys.RemoveFromList}, {"sort_playlist", &keys.SortPlaylist},
+		{"delete_playlist", &keys.DeletePlaylist}, {"add_playlist", &keys.AddToPlaylist}, {"new_playlist", &keys.NewPlaylist},
+		{"back", &keys.Back}, {"seek_forward", &keys.SeekFwd}, {"seek_backward", &keys.SeekBack},
+		{"volume_up", &keys.VolUp}, {"volume_down", &keys.VolDown}, {"speed_up", &keys.SpeedUp},
+		{"speed_down", &keys.SpeedDown}, {"quit", &keys.Quit}, {"enter", &keys.Enter},
+		{"up", &keys.Up}, {"down", &keys.Down}, {"filter", &keys.Filter},
+	}
+}
+
+func keybindingForAction(keys *keyMap, action string) *key.Binding {
+	for _, named := range keybindingActions(keys) {
+		if named.name == action {
+			return named.binding
+		}
+	}
+	return nil
+}
+
+func displayKey(value string) string {
+	switch value {
+	case "space":
+		return "␣"
+	case "enter":
+		return "⏎"
+	case "left":
+		return "←"
+	case "right":
+		return "→"
+	case "up":
+		return "↑"
+	case "down":
+		return "↓"
+	}
+	return value
 }

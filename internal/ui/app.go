@@ -127,6 +127,7 @@ type Options struct {
 	LyricsAlign                string
 	LyricsHighlightMode        string
 	SpectrumEnabled            bool
+	Keybindings                map[string][]string
 	PlaylistStore              *playlist.Store
 	MPRISSink                  func(mpris.Snapshot)
 }
@@ -264,6 +265,7 @@ func New(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *log.Logger)
 func NewWithOptions(eng *audio.Engine, sc *library.Scanner, t *theme.Theme, lg *log.Logger, opts Options) *App {
 	fl := lg.WithModule("ui").WithFunc("New")
 	keys := defaultKeyMap()
+	applyKeybindingOverrides(&keys, opts.Keybindings, fl.Warn)
 	styles := NewStyles(t)
 	delegate := newListDelegate(t)
 	coverScale := coverScaleFromString(opts.CoverScale)

@@ -48,11 +48,14 @@ progress_style = "bar"   # bar | separator; separator uses a pixel-level kitty o
 separator_progress_thickness = 1 # 1-8 pixels; kitty separator overlay only
 
 [keybindings]
-# Empty = use built-in defaults. Override individual keys here, e.g.:
+# Omit an action to use its built-in default. Each value is one or more Bubble Tea key strings.
 # play_pause = ["space", "p"]
 # next = ["n", "l"]
-# Built-in playlist keys: p playlists, f favorite, m add selected track,
-# N new playlist, x remove playlist track, o sort playlist, d delete playlist.
+# Supported actions: play_pause, next, prev, repeat, shuffle, lyric_align,
+# lyric_highlight, spectrum, view, scale, list, playlists, favorite,
+# remove_playlist_track, sort_playlist, delete_playlist, add_playlist,
+# new_playlist, back, seek_forward, seek_backward, volume_up, volume_down,
+# speed_up, speed_down, quit, enter, up, down, filter.
 
 [log]
 level = "debug"      # debug | info | warning | error

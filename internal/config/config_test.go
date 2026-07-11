@@ -322,6 +322,23 @@ func TestLoadClampsInvalidSpectrumUpdateHz(t *testing.T) {
 	}
 }
 
+func TestLoadKeybindingOverrides(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[keybindings]\nnext = [\"g\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if got := c.Keybindings["next"]; len(got) != 1 || got[0] != "g" {
+		t.Fatalf("next override = %v, want [g]", got)
+	}
+}
+
 func TestExpandHome(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	cases := []struct{ in, want string }{

@@ -70,6 +70,33 @@ func TestTrackListTitleHasBlankLineBeforeItems(t *testing.T) {
 	}
 }
 
+func TestKeybindingOverrideReplacesDefaultKeys(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		Keybindings: map[string][]string{"next": {"g"}},
+	})
+	if !key.Matches(tea.KeyPressMsg(tea.Key{Text: "g", Code: 'g'}), app.keys.Next) {
+		t.Fatal("configured key does not match next")
+	}
+	if key.Matches(tea.KeyPressMsg(tea.Key{Text: "n", Code: 'n'}), app.keys.Next) {
+		t.Fatal("default next key still matches after override")
+	}
+	if got := app.keys.Next.Help().Key; got != "g" {
+		t.Fatalf("next help key = %q, want g", got)
+	}
+}
+
+func TestKeybindingConflictRetainsDefault(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		Keybindings: map[string][]string{"next": {"p"}},
+	})
+	if !key.Matches(tea.KeyPressMsg(tea.Key{Text: "n", Code: 'n'}), app.keys.Next) {
+		t.Fatal("conflicting override replaced default next key")
+	}
+	if key.Matches(tea.KeyPressMsg(tea.Key{Text: "p", Code: 'p'}), app.keys.Next) {
+		t.Fatal("conflicting override was applied")
+	}
+}
+
 func TestFilteredPlaybackKeepsSelectionWithinVisibleItems(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	m, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})

@@ -377,8 +377,10 @@ file = ""            # empty = ~/.local/state/musicli/musicli.log
 - Linux 自动模式优先使用 XDG Portal，Portal 不可用时轮询 gsettings；平台不支持时安全回退深色。
 - 主题变化通过 `Program.Send` 进入 Bubble Tea 主循环，重建样式并按顺序刷新 Kitty 封面和进度覆盖层。
 
-### 阶段 11: 快捷键自定义
-- TOML `[keybindings]` 覆盖默认 KeyMap（阶段 3 已有默认）
+### 阶段 11: 快捷键自定义（已完成）
+- `[keybindings]` 使用动作名覆盖默认按键；未配置的动作保持默认绑定。
+- 支持播放、导航、歌词、封面、频谱、歌单和音量/速度等全部内置动作；可用动作清单见配置示例。
+- 未知动作、空按键或与其他有效动作冲突的覆盖会写 warning，并安全保留默认绑定。
 
 ### 阶段 12: 歌词自动爬取
 - 创建 `internal/lyrics/fetcher.go` + 各源

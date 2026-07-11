@@ -156,6 +156,7 @@ func run() error {
 		LyricsAlign:                cfg.Lyrics.Align,
 		LyricsHighlightMode:        cfg.Lyrics.HighlightMode,
 		SpectrumEnabled:            cfg.Spectrum.Enabled,
+		Keybindings:                cfg.Keybindings,
 		PlaylistStore:              playlistStore,
 		MPRISSink: func(snapshot mpris.Snapshot) {
 			if mprisSvc != nil {
