@@ -42,6 +42,11 @@ const (
 	SampleRate      = 48000
 	ChannelCount    = 2
 	BitDepthInBytes = 2 // signed 16-bit
+
+	// Oto defaults to a 500ms source buffer. Keeping this at 100ms makes the
+	// PCM spectrum track audible output closely without risking frequent
+	// underruns on normal desktop audio devices.
+	playerBufferSizeBytes = SampleRate * ChannelCount * BitDepthInBytes / 10
 )
 
 // State is the playback state.
@@ -468,6 +473,7 @@ func (e *Engine) startFFmpeg(offsetMs int) error {
 	pr, pw := io.Pipe()
 	fl.Debug("io.Pipe created")
 	player := e.oto.NewPlayer(pr)
+	player.SetBufferSize(playerBufferSizeBytes)
 	player.SetVolume(vol)
 	player.Play()
 
