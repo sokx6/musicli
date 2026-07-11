@@ -1941,6 +1941,26 @@ func TestLoadCurrentLyricsShowsCurrentLine(t *testing.T) {
 	}
 }
 
+func TestLyricsFetchedMessageIgnoresStaleTrack(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.tracks = []*library.Track{{Path: "/music/first.flac"}, {Path: "/music/second.flac"}}
+	app.current = 1
+	app.lyricFetchGeneration = 2
+	result := &lyrics.FetchResult{Lyric: &lyrics.Lyric{Lines: []lyrics.Line{{StartMs: 1000, Text: "fresh"}}}}
+
+	m, _ := app.Update(LyricsFetchedMsg{Generation: 1, TrackPath: "/music/first.flac", Result: result})
+	app = m.(*App)
+	if app.lyric != nil {
+		t.Fatalf("stale result overwrote current track lyric: %#v", app.lyric)
+	}
+
+	m, _ = app.Update(LyricsFetchedMsg{Generation: 2, TrackPath: "/music/second.flac", Result: result})
+	app = m.(*App)
+	if app.lyric == nil || app.lyric.Lines[0].Text != "fresh" {
+		t.Fatalf("current fetch result was not applied: %#v", app.lyric)
+	}
+}
+
 func TestRenderLyricsPaneIncludesWordTimedCurrentLine(t *testing.T) {
 	dir := t.TempDir()
 	audio := filepath.Join(dir, "song.mp3")

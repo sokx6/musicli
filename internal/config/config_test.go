@@ -291,6 +291,40 @@ func TestLoadRejectsInvalidLyricHighlightMode(t *testing.T) {
 	}
 }
 
+func TestLoadConfiguresLyricFetchBridge(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[lyrics]\nfetch_command = \"/usr/local/bin/lddc-fetch\"\nfetch_timeout_seconds = 20\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	if c.Lyrics.FetchCommand != "/usr/local/bin/lddc-fetch" || c.Lyrics.FetchTimeoutSeconds != 20 {
+		t.Fatalf("lyrics fetch config = %#v", c.Lyrics)
+	}
+}
+
+func TestLoadClampsInvalidLyricFetchTimeout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[lyrics]\nfetch_timeout_seconds = 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Lyrics.FetchTimeoutSeconds != 12 {
+		t.Fatalf("fetch timeout = %d, want 12", c.Lyrics.FetchTimeoutSeconds)
+	}
+	if !strings.Contains(strings.Join(warnings, "\n"), "lyrics.fetch_timeout_seconds") {
+		t.Fatalf("warnings = %v", warnings)
+	}
+}
+
 func TestLoadAcceptsSpectrumEnabled(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte("[spectrum]\nenabled = true\n"), 0o644); err != nil {

@@ -126,6 +126,11 @@ type Options struct {
 	PlaybackShuffle            bool
 	LyricsAlign                string
 	LyricsHighlightMode        string
+	LyricsAutoFetch            bool
+	LyricsSources              []string
+	LyricsSaveDir              string
+	LyricsFetchCommand         string
+	LyricsFetchTimeoutSeconds  int
 	SpectrumEnabled            bool
 	Keybindings                map[string][]string
 	PlaylistStore              *playlist.Store
@@ -200,16 +205,17 @@ type App struct {
 	delegate  list.DefaultDelegate
 	progress  progress.Model
 
-	tracks     []*library.Track
-	albums     []*library.Album
-	queue      []*library.Track
-	queueSrc   queueSource
-	current    int // index into tracks, -1 if none
-	loading    bool
-	lyric      *lyrics.Lyric
-	lyricPath  string
-	coverImage image.Image
-	coverURL   string
+	tracks               []*library.Track
+	albums               []*library.Album
+	queue                []*library.Track
+	queueSrc             queueSource
+	current              int // index into tracks, -1 if none
+	loading              bool
+	lyric                *lyrics.Lyric
+	lyricPath            string
+	lyricFetchGeneration uint64
+	coverImage           image.Image
+	coverURL             string
 
 	leftContent          leftContentMode
 	libraryView          libraryViewMode
@@ -351,6 +357,15 @@ type ThemeChangedMsg struct{ Theme *theme.Theme }
 // event loop. The UI remains the single owner of playback/list state.
 type DBusCommandMsg struct{ Command mpris.Command }
 
+// LyricsFetchedMsg carries an asynchronous lyric bridge result into the UI.
+type LyricsFetchedMsg struct {
+	Generation uint64
+	TrackPath  string
+	Result     *lyrics.FetchResult
+	CachePath  string
+	Err        error
+}
+
 // scanCmd scans the given path async.
 func scanCmd(sc *library.Scanner, path string) tea.Cmd {
 	return func() tea.Msg {
@@ -457,6 +472,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DBusCommandMsg:
 		return a, a.handleDBusCommand(msg.Command)
+
+	case LyricsFetchedMsg:
+		if msg.Generation != a.lyricFetchGeneration || a.current < 0 || a.current >= len(a.tracks) || a.tracks[a.current].Path != msg.TrackPath {
+			a.log.WithFunc("Update").Debug("discarded stale lyric fetch result", "path", msg.TrackPath)
+			return a, nil
+		}
+		if msg.Err != nil {
+			if !errors.Is(msg.Err, lyrics.ErrNotFound) {
+				a.log.WithFunc("Update").Warn("lyric fetch failed", "path", msg.TrackPath, "err", msg.Err)
+			}
+			return a, nil
+		}
+		if msg.Result == nil || msg.Result.Lyric == nil {
+			return a, nil
+		}
+		a.lyric = msg.Result.Lyric
+		a.lyricPath = msg.CachePath
+		if a.lyricPath == "" {
+			a.lyricPath = "fetch:" + msg.Result.Source
+		}
+		a.lastLyricRender = lyricRenderState{line: -1, word: -1}
+		a.log.WithFunc("Update").Info("fetched lyric loaded", "path", a.lyricPath, "source", msg.Result.Source, "timing", msg.Result.Timing, "lines", len(a.lyric.Lines))
+		return a, a.lyricChangeCmd()
 
 	case ThemeChangedMsg:
 		if msg.Theme == nil {
@@ -1294,9 +1332,9 @@ func (a *App) playTrackAt(idx int) tea.Cmd {
 		fl.Error("Play failed", "err", err)
 		return func() tea.Msg { return errMsg{err: err} }
 	}
-	a.loadCurrentLyrics()
+	lyricCmd := a.loadCurrentLyrics()
 	a.loadCurrentCover()
-	return a.kittyCoverCmd()
+	return tea.Batch(a.kittyCoverCmd(), lyricCmd)
 }
 
 func (a *App) playbackRepeat() string {
@@ -1867,28 +1905,67 @@ func (a *App) seekTo(target int) tea.Cmd {
 	return nil
 }
 
-func (a *App) loadCurrentLyrics() {
+func (a *App) loadCurrentLyrics() tea.Cmd {
 	fl := a.log.WithFunc("loadCurrentLyrics")
 	a.lyric = nil
 	a.lyricPath = ""
 	a.lastLyricRender = lyricRenderState{line: -1, word: -1}
+	a.lyricFetchGeneration++
 	if a.current < 0 || a.current >= len(a.tracks) {
-		return
+		return nil
 	}
-	path := a.tracks[a.current].Path
+	track := a.tracks[a.current]
+	path := track.Path
 	if path == "" {
-		return
+		return nil
 	}
 	ly, lyricPath, err := lyrics.LoadLocal(path)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			fl.Warn("local lyric load failed", "path", path, "err", err)
-		}
-		return
+	if err == nil {
+		a.lyric = ly
+		a.lyricPath = lyricPath
+		fl.Info("local lyric loaded", "path", lyricPath, "lines", len(ly.Lines))
+		return nil
 	}
-	a.lyric = ly
-	a.lyricPath = lyricPath
-	fl.Info("local lyric loaded", "path", lyricPath, "lines", len(ly.Lines))
+	if !errors.Is(err, os.ErrNotExist) {
+		fl.Warn("local lyric load failed", "path", path, "err", err)
+		return nil
+	}
+	ly, lyricPath, err = lyrics.LoadCached(a.options.LyricsSaveDir, path)
+	if err == nil {
+		a.lyric = ly
+		a.lyricPath = lyricPath
+		fl.Info("cached lyric loaded", "path", lyricPath, "lines", len(ly.Lines))
+		return nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		fl.Warn("cached lyric load failed", "path", path, "err", err)
+	}
+	if !a.options.LyricsAutoFetch || a.options.LyricsFetchCommand == "" {
+		return nil
+	}
+	return fetchLyricsCmd(a.lyricFetchGeneration, track, a.options)
+}
+
+func fetchLyricsCmd(generation uint64, track *library.Track, opts Options) tea.Cmd {
+	request := lyrics.FetchRequest{
+		Title:      track.Title,
+		Artist:     track.Artist,
+		Album:      track.Album,
+		DurationMS: track.Duration,
+		Path:       track.Path,
+		Sources:    opts.LyricsSources,
+	}
+	return func() tea.Msg {
+		result, err := (lyrics.Fetcher{
+			Command: opts.LyricsFetchCommand,
+			Timeout: time.Duration(opts.LyricsFetchTimeoutSeconds) * time.Second,
+		}).Fetch(context.Background(), request)
+		message := LyricsFetchedMsg{Generation: generation, TrackPath: track.Path, Result: result, Err: err}
+		if err == nil {
+			message.CachePath, message.Err = lyrics.SaveCached(opts.LyricsSaveDir, track.Path, result.Raw)
+		}
+		return message
+	}
 }
 
 func (a *App) loadCurrentCover() {

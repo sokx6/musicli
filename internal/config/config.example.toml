@@ -21,6 +21,8 @@ index_cache = true    # reuse unchanged library metadata between launches
 auto_fetch = false   # auto-crawl lyrics when local file missing (phase 12)
 sources = ["lrclib", "qq", "netease", "kugou"]
 save_dir = ""        # empty = ~/.cache/musicli/lyrics
+fetch_command = "lddc-fetch" # external JSON lyric bridge; used only when auto_fetch is true
+fetch_timeout_seconds = 12 # external lyric bridge timeout, 1-60 seconds
 align = "left"       # left | center | right
 highlight_mode = "played" # played | current; played includes every word that has started
 

@@ -50,11 +50,13 @@ type Library struct {
 }
 
 type Lyrics struct {
-	AutoFetch     bool     `toml:"auto_fetch"`
-	Sources       []string `toml:"sources"`
-	SaveDir       string   `toml:"save_dir"`
-	Align         string   `toml:"align"`
-	HighlightMode string   `toml:"highlight_mode"`
+	AutoFetch           bool     `toml:"auto_fetch"`
+	Sources             []string `toml:"sources"`
+	SaveDir             string   `toml:"save_dir"`
+	FetchCommand        string   `toml:"fetch_command"`
+	FetchTimeoutSeconds int      `toml:"fetch_timeout_seconds"`
+	Align               string   `toml:"align"`
+	HighlightMode       string   `toml:"highlight_mode"`
 }
 
 type Spectrum struct {
@@ -172,6 +174,13 @@ func (c *Config) applyDefaults(warnings *[]string) {
 	default:
 		*warnings = append(*warnings, fmt.Sprintf("lyrics.highlight_mode %q invalid, using played", c.Lyrics.HighlightMode))
 		c.Lyrics.HighlightMode = "played"
+	}
+	if c.Lyrics.FetchTimeoutSeconds < 1 || c.Lyrics.FetchTimeoutSeconds > 60 {
+		*warnings = append(*warnings, fmt.Sprintf(
+			"lyrics.fetch_timeout_seconds %d out of range, using 12",
+			c.Lyrics.FetchTimeoutSeconds,
+		))
+		c.Lyrics.FetchTimeoutSeconds = 12
 	}
 	if c.Spectrum.UpdateHz < 10 || c.Spectrum.UpdateHz > 200 {
 		*warnings = append(*warnings, fmt.Sprintf("spectrum.update_hz %d out of range, using 50", c.Spectrum.UpdateHz))

@@ -1,11 +1,52 @@
 package lyrics
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestFetcherParsesVerbatimLyricsAndCachesThem(t *testing.T) {
+	dir := t.TempDir()
+	command := filepath.Join(dir, "lddc-fetch")
+	if err := os.WriteFile(command, []byte(`#!/bin/sh
+printf '%s\n' '{"found":true,"source":"qq","format":"lrc","timing":"verbatim","lyrics":"[00:01.00]he[00:01.30]llo[00:02.00]"}'
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := (Fetcher{Command: command, Timeout: time.Second}).Fetch(context.Background(), FetchRequest{
+		Title:      "Song",
+		Artist:     "Artist",
+		DurationMS: 120000,
+		Sources:    []string{"qq"},
+	})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if result.Source != "qq" || result.Timing != "verbatim" || len(result.Lyric.Lines) != 1 || len(result.Lyric.Lines[0].Words) != 2 {
+		t.Fatalf("unexpected fetch result: %#v", result)
+	}
+
+	audioPath := filepath.Join(dir, "song.flac")
+	cachePath, err := SaveCached(dir, audioPath, result.Raw)
+	if err != nil {
+		t.Fatalf("SaveCached: %v", err)
+	}
+	if filepath.Dir(cachePath) != dir {
+		t.Fatalf("cache path %q not under %q", cachePath, dir)
+	}
+	loaded, loadedPath, err := LoadCached(dir, audioPath)
+	if err != nil {
+		t.Fatalf("LoadCached: %v", err)
+	}
+	if loadedPath != cachePath || len(loaded.Lines) != 1 || len(loaded.Lines[0].Words) != 2 {
+		t.Fatalf("unexpected cached lyric: path=%q lyric=%#v", loadedPath, loaded)
+	}
+}
 
 func TestSPLParserParsesLRCAndTranslations(t *testing.T) {
 	text := `[ti:Song]
