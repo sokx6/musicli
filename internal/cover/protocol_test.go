@@ -308,6 +308,21 @@ func TestKittyFitDoesNotPaintLetterboxBackground(t *testing.T) {
 	}
 }
 
+func TestKittyFitCanTopAlignLetterboxedImage(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 8, 2))
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 8; x++ {
+			img.Set(x, y, color.RGBA{R: 220, A: 255})
+		}
+	}
+	canvas := imageCanvasAligned(img, 4, 8, ScaleFit, 10, 10, true)
+	_, _, _, topAlpha := canvas.At(0, 0).RGBA()
+	_, _, _, bottomAlpha := canvas.At(0, canvas.Bounds().Max.Y-1).RGBA()
+	if topAlpha == 0 || bottomAlpha != 0 {
+		t.Fatalf("top-aligned fit alpha = top:%#x bottom:%#x, want opaque then transparent", topAlpha, bottomAlpha)
+	}
+}
+
 func TestKittyCanvasUsesNonDefaultCellSize(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
 	for y := 0; y < 8; y++ {

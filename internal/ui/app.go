@@ -358,7 +358,7 @@ func scanCmd(sc *library.Scanner, path string) tea.Cmd {
 }
 
 const (
-	tickInterval          = 50 * time.Millisecond
+	tickInterval          = time.Second / 30
 	lyricFinalWordGraceMs = 60
 )
 
@@ -759,7 +759,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.ToggleSpectrum):
 		fl.Debug("key matched", "key", keyStr, "action", "toggleSpectrum")
 		a.spectrumEnabled = !a.spectrumEnabled
-		return a, nil
+		return a, a.clearScreenAndKittyCoverCmd()
 
 	case key.Matches(msg, a.keys.ToggleView):
 		fl.Debug("key matched", "key", keyStr, "action", "toggleLeftContent")
@@ -1675,9 +1675,10 @@ func (a *App) coverScaleMode() cover.ScaleMode {
 // affecting the kitty cover overlay. When this string is unchanged, the
 // expensive renderKittyCoverOverlay() (PNG encode + base64) can be skipped.
 func (a *App) kittyCoverFingerprint() string {
-	return fmt.Sprintf("%d|%d|%p|%d|%d|%d|%d",
+	return fmt.Sprintf("%d|%d|%t|%p|%d|%d|%d|%d",
 		a.leftContent,
 		a.coverScale,
+		a.spectrumEnabled,
 		a.coverImage,
 		a.cellPixelW,
 		a.cellPixelH,
@@ -2403,6 +2404,7 @@ func (a *App) renderKittyCoverOverlay() string {
 	x := 1
 	y := 3 // top bar content + bottom border + 1-based terminal row.
 	coverW := w
+	topAlign := false
 	if a.leftContent == leftContentBoth && w >= 12 {
 		coverW = w / 2
 	}
@@ -2411,6 +2413,7 @@ func (a *App) renderKittyCoverOverlay() string {
 		if layout.visible && a.leftContent != leftContentLyrics {
 			coverW = layout.coverW
 			h = layout.coverH
+			topAlign = true
 		}
 	}
 	if coverW < 1 {
@@ -2418,14 +2421,15 @@ func (a *App) renderKittyCoverOverlay() string {
 	}
 
 	seq, err := cover.RenderKitty(a.coverImage, cover.KittyPlacement{
-		ID:     kittyImageID,
-		X:      x,
-		Y:      y,
-		Width:  coverW,
-		Height: h,
-		Scale:  a.coverScaleMode(),
-		CellW:  a.cellPixelW,
-		CellH:  a.cellPixelH,
+		ID:       kittyImageID,
+		X:        x,
+		Y:        y,
+		Width:    coverW,
+		Height:   h,
+		Scale:    a.coverScaleMode(),
+		CellW:    a.cellPixelW,
+		CellH:    a.cellPixelH,
+		TopAlign: topAlign,
 	})
 	if err != nil {
 		a.log.WithFunc("renderKittyCoverOverlay").Warn("kitty cover render failed", "err", err)

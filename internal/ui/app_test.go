@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
@@ -1654,6 +1655,44 @@ func TestSpectrumBrailleDotsUsesBothThinColumns(t *testing.T) {
 	left, right = spectrumBrailleDots(0, 1, 3, 4)
 	if left != 0 || right == 0 {
 		t.Fatalf("right-only bars = (%#x, %#x), want right dots only", left, right)
+	}
+}
+
+func TestSpectrumToggleRedrawsKittyCoverImmediately(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{
+		CoverProtocol: "kitty",
+	})
+	app.coverImage = testCoverImage(8, 8)
+	app.leftContent = leftContentCover
+	app.leftW = 20
+	app.height = 14
+	if cmd := app.kittyCoverCmd(); cmd == nil {
+		t.Fatal("initial kitty cover draw is nil")
+	}
+
+	_, cmd := app.handleKey(tea.KeyPressMsg(tea.Key{Text: "z", Code: 'z'}))
+	if cmd == nil {
+		t.Fatal("spectrum toggle should redraw kitty cover immediately")
+	}
+	if _, ok := cmd().(tea.RawMsg); !ok {
+		t.Fatalf("spectrum toggle command = %T, want tea.RawMsg", cmd())
+	}
+}
+
+func TestSpectrumToggleChangesKittyCoverFingerprint(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
+	app.leftW = 20
+	app.height = 14
+	before := app.kittyCoverFingerprint()
+	app.spectrumEnabled = true
+	if after := app.kittyCoverFingerprint(); after == before {
+		t.Fatal("spectrum toggle did not change kitty cover fingerprint")
+	}
+}
+
+func TestSpectrumRefreshRateMatchesRendererFPS(t *testing.T) {
+	if tickInterval > time.Second/30 {
+		t.Fatalf("tick interval = %s, want <= %s for spectrum continuity", tickInterval, time.Second/30)
 	}
 }
 

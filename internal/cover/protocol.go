@@ -46,14 +46,15 @@ func SelectProtocol(configured string, getenv func(string) string) string {
 
 // KittyPlacement describes where a kitty image should be drawn.
 type KittyPlacement struct {
-	ID     int
-	X      int
-	Y      int
-	Width  int
-	Height int
-	Scale  ScaleMode
-	CellW  int // terminal cell pixel width for aspect ratio; 0 = default 10
-	CellH  int // terminal cell pixel height for aspect ratio; 0 = default 20
+	ID       int
+	X        int
+	Y        int
+	Width    int
+	Height   int
+	Scale    ScaleMode
+	CellW    int // terminal cell pixel width for aspect ratio; 0 = default 10
+	CellH    int // terminal cell pixel height for aspect ratio; 0 = default 20
+	TopAlign bool
 }
 
 // ClearKittyImage returns a kitty graphics command that deletes one image id.
@@ -77,7 +78,7 @@ func RenderKitty(img image.Image, placement KittyPlacement) (string, error) {
 		return ClearKittyImage(placement.ID), nil
 	}
 
-	renderImg := imageCanvas(img, placement.Width, placement.Height, placement.Scale, placement.CellW, placement.CellH)
+	renderImg := imageCanvasAligned(img, placement.Width, placement.Height, placement.Scale, placement.CellW, placement.CellH, placement.TopAlign)
 
 	var pngBuf bytes.Buffer
 	if err := png.Encode(&pngBuf, renderImg); err != nil {
@@ -181,6 +182,10 @@ func RenderKittyProgressLine(id, x, y, width, cellW, cellH, playedPixels, thickn
 }
 
 func imageCanvas(img image.Image, width, height int, scale ScaleMode, cellW, cellH int) image.Image {
+	return imageCanvasAligned(img, width, height, scale, cellW, cellH, false)
+}
+
+func imageCanvasAligned(img image.Image, width, height int, scale ScaleMode, cellW, cellH int, topAlign bool) image.Image {
 	if cellW <= 0 {
 		cellW = kittyCellPixelWidth
 	}
@@ -193,6 +198,9 @@ func imageCanvas(img image.Image, width, height int, scale ScaleMode, cellW, cel
 	canvas := image.NewRGBA(image.Rect(0, 0, canvasW, canvasH))
 	offsetX := (canvasW - drawW) / 2
 	offsetY := (canvasH - drawH) / 2
+	if topAlign {
+		offsetY = 0
+	}
 	for row := 0; row < drawH; row++ {
 		for col := 0; col < drawW; col++ {
 			canvas.Set(offsetX+col, offsetY+row, sample(img, col, row, drawW, drawH))
