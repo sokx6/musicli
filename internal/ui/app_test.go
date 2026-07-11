@@ -1691,6 +1691,13 @@ func TestSpectrumBrailleDotsUsesBothThinColumns(t *testing.T) {
 	}
 }
 
+func TestSpectrumBrailleDotsFillFromBottom(t *testing.T) {
+	left, right := spectrumBrailleDots(0.25, 0, 0, 1)
+	if left != 0x40 || right != 0 {
+		t.Fatalf("bottom quarter = %#x, %#x; want bottom-left dot only", left, right)
+	}
+}
+
 func TestThemeChangedRebuildsProgressAndSpectrumStyles(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	next := theme.DefaultForMode(theme.ModeLight)

@@ -58,7 +58,8 @@ type Lyrics struct {
 }
 
 type Spectrum struct {
-	Enabled bool `toml:"enabled"`
+	Enabled  bool `toml:"enabled"`
+	UpdateHz int  `toml:"update_hz"`
 }
 
 type Cover struct {
@@ -176,6 +177,10 @@ func (c *Config) applyDefaults(warnings *[]string) {
 	default:
 		*warnings = append(*warnings, fmt.Sprintf("lyrics.highlight_mode %q invalid, using played", c.Lyrics.HighlightMode))
 		c.Lyrics.HighlightMode = "played"
+	}
+	if c.Spectrum.UpdateHz < 10 || c.Spectrum.UpdateHz > 200 {
+		*warnings = append(*warnings, fmt.Sprintf("spectrum.update_hz %d out of range, using 50", c.Spectrum.UpdateHz))
+		c.Spectrum.UpdateHz = 50
 	}
 	switch c.Theme.Mode {
 	case "", "dark":

@@ -52,6 +52,9 @@ func TestDefaultsRoundtrip(t *testing.T) {
 	if c.Spectrum.Enabled {
 		t.Error("default spectrum enabled = true, want false")
 	}
+	if c.Spectrum.UpdateHz != 50 {
+		t.Errorf("default spectrum update_hz = %d, want 50", c.Spectrum.UpdateHz)
+	}
 	if c.Theme.Dark != "" || c.Theme.Light != "" {
 		t.Errorf("default theme paths = %q/%q, want empty", c.Theme.Dark, c.Theme.Light)
 	}
@@ -302,6 +305,20 @@ func TestLoadAcceptsSpectrumEnabled(t *testing.T) {
 	}
 	if !c.Spectrum.Enabled {
 		t.Fatal("spectrum enabled = false, want true")
+	}
+}
+
+func TestLoadClampsInvalidSpectrumUpdateHz(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[spectrum]\nupdate_hz = 500\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Spectrum.UpdateHz != 50 || !strings.Contains(strings.Join(warnings, "\n"), "spectrum.update_hz") {
+		t.Fatalf("spectrum update_hz = %d, warnings = %v", c.Spectrum.UpdateHz, warnings)
 	}
 }
 

@@ -48,10 +48,7 @@ const (
 	// underruns on normal desktop audio devices.
 	playerBufferSizeBytes = SampleRate * ChannelCount * BitDepthInBytes / 10
 
-	// Feed the spectrum in 21ms slices instead of the former 171ms reader
-	// chunks. Small, regular updates prevent FFT windows from drifting across
-	// short rhythmic pulses while remaining far below audio I/O overhead.
-	spectrumPCMChunkSize = 4 * 1024
+	DefaultSpectrumUpdateHz = 50
 )
 
 // State is the playback state.
@@ -101,11 +98,22 @@ type Engine struct {
 	cancelReader  context.CancelFunc
 	spectrum      *SpectrumAnalyzer
 	spectrumEpoch uint64
+	spectrumChunk int
+}
+
+// Options configures playback behavior that is fixed for an engine lifetime.
+type Options struct {
+	SpectrumUpdateHz int
 }
 
 // New creates an Engine. The oto context is created once here and reused
 // for the engine's lifetime (oracle Risk-B2: never recreate per track).
 func New(ctx context.Context, logger *log.Logger) (*Engine, error) {
+	return NewWithOptions(ctx, logger, Options{})
+}
+
+// NewWithOptions creates an Engine with the supplied playback options.
+func NewWithOptions(ctx context.Context, logger *log.Logger, opts Options) (*Engine, error) {
 	otoCtx, ready, err := oto.NewContext(&oto.NewContextOptions{
 		SampleRate:   SampleRate,
 		ChannelCount: ChannelCount,
@@ -122,13 +130,18 @@ func New(ctx context.Context, logger *log.Logger) (*Engine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create spectrum analyzer: %w", err)
 	}
+	updateHz := opts.SpectrumUpdateHz
+	if updateHz == 0 {
+		updateHz = DefaultSpectrumUpdateHz
+	}
 	return &Engine{
-		log:      l,
-		oto:      otoCtx,
-		spectrum: spectrum,
-		state:    StateStopped,
-		speed:    1.0,
-		volume:   1.0,
+		log:           l,
+		oto:           otoCtx,
+		spectrum:      spectrum,
+		spectrumChunk: spectrumPCMChunkSizeForHz(updateHz),
+		state:         StateStopped,
+		speed:         1.0,
+		volume:        1.0,
 	}, nil
 }
 
@@ -511,7 +524,11 @@ func (e *Engine) readerLoop(ctx context.Context, cmd *exec.Cmd, player *oto.Play
 	defer pw.Close()
 
 	fl.Debug("io.Copy starting", "path", path)
-	buf := make([]byte, spectrumPCMChunkSize)
+	chunkSize := e.spectrumChunk
+	if chunkSize <= 0 {
+		chunkSize = spectrumPCMChunkSizeForHz(DefaultSpectrumUpdateHz)
+	}
+	buf := make([]byte, chunkSize)
 	var n int64
 	var copyErr error
 	for {
@@ -562,6 +579,15 @@ func (e *Engine) readerLoop(ctx context.Context, cmd *exec.Cmd, player *oto.Play
 	}
 	e.mu.Unlock()
 	fl.Debug("track ended naturally", "path", path, "bytes_copied", n, "is_playing", player.IsPlaying())
+}
+
+func spectrumPCMChunkSizeForHz(updateHz int) int {
+	if updateHz <= 0 {
+		updateHz = DefaultSpectrumUpdateHz
+	}
+	frameBytes := ChannelCount * BitDepthInBytes
+	bytes := SampleRate * frameBytes / updateHz
+	return max(frameBytes, bytes/frameBytes*frameBytes)
 }
 
 func (e *Engine) writeSpectrumPCM(epoch uint64, pcm []byte) {

@@ -94,13 +94,13 @@ func run() error {
 	defer stop()
 
 	// Audio engine (oto context created once, reused).
-	eng, err := audio.New(ctx, logger)
+	eng, err := audio.NewWithOptions(ctx, logger, audio.Options{SpectrumUpdateHz: cfg.Spectrum.UpdateHz})
 	if err != nil {
 		return fmt.Errorf("init audio: %w", err)
 	}
 	eng.SetVolume(cfg.Audio.Volume)
 	eng.SetSpeed(cfg.Audio.Speed)
-	fl.Info("audio engine created", "volume", cfg.Audio.Volume, "speed", cfg.Audio.Speed)
+	fl.Info("audio engine created", "volume", cfg.Audio.Volume, "speed", cfg.Audio.Speed, "spectrum.update_hz", cfg.Spectrum.UpdateHz)
 
 	// Library scanner.
 	sc := library.NewScanner(logger)

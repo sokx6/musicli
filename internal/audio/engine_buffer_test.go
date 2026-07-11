@@ -9,9 +9,11 @@ func TestPlayerBufferTargetsOneHundredMilliseconds(t *testing.T) {
 	}
 }
 
-func TestSpectrumPCMChunksAreNoLongerThanOneFFTWindow(t *testing.T) {
-	fftWindowBytes := SpectrumFFTSize * ChannelCount * BitDepthInBytes
-	if spectrumPCMChunkSize > fftWindowBytes {
-		t.Fatalf("spectrum chunk = %d bytes, want <= one FFT window (%d)", spectrumPCMChunkSize, fftWindowBytes)
+func TestSpectrumPCMChunkSizeFollowsConfiguredRefreshRate(t *testing.T) {
+	if got, want := spectrumPCMChunkSizeForHz(DefaultSpectrumUpdateHz), 3840; got != want {
+		t.Fatalf("default spectrum chunk = %d bytes, want %d", got, want)
+	}
+	if got, want := spectrumPCMChunkSizeForHz(100), 1920; got != want {
+		t.Fatalf("100Hz spectrum chunk = %d bytes, want %d", got, want)
 	}
 }

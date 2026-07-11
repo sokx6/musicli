@@ -26,6 +26,7 @@ highlight_mode = "played" # played | current; played includes every word that ha
 
 [spectrum]
 enabled = false       # show the responsive PCM spectrum at startup; z toggles for this session
+update_hz = 50        # PCM/FFT refresh rate, 10-200; higher is more responsive but uses more CPU
 
 [cover]
 show = true

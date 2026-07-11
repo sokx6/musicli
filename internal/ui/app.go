@@ -2364,8 +2364,6 @@ func levelAt(levels []float64, index int) float64 {
 func spectrumBrailleDots(left, right float64, row, height int) (int, int) {
 	// Braille has four vertical dots per column. Each terminal row represents
 	// four subrows, giving thin columns four times the former vertical detail.
-	const leftBits = 0x01 | 0x02 | 0x04 | 0x40
-	const rightBits = 0x08 | 0x10 | 0x20 | 0x80
 	filled := func(level float64, bits [4]int) int {
 		barDots := int(math.Round(level * float64(height*4)))
 		result := 0
@@ -2377,8 +2375,8 @@ func spectrumBrailleDots(left, right float64, row, height int) (int, int) {
 		}
 		return result
 	}
-	return filled(left, [4]int{0x01, 0x02, 0x04, 0x40}) & leftBits,
-		filled(right, [4]int{0x08, 0x10, 0x20, 0x80}) & rightBits
+	return filled(left, [4]int{0x40, 0x04, 0x02, 0x01}),
+		filled(right, [4]int{0x80, 0x20, 0x10, 0x08})
 }
 
 func (a *App) renderCoverAndLyricsPane(w, h int) string {
