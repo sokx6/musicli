@@ -93,10 +93,27 @@ func watchPortalMode(ctx context.Context, send func(Mode)) bool {
 	}
 	signals := make(chan *dbus.Signal, 4)
 	conn.Signal(signals)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	notify := func(next Mode) {
+		if next != current {
+			current = next
+			send(next)
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return true
+		case <-ticker.C:
+			// Some portal backends update Settings.Read but omit SettingChanged.
+			// Polling the authoritative portal value keeps desktop bar toggles in
+			// sync without giving up immediate signal-based updates.
+			next, err := portalMode()
+			if err != nil {
+				return false
+			}
+			notify(next)
 		case signal := <-signals:
 			if signal == nil || len(signal.Body) < 3 {
 				continue
@@ -111,11 +128,7 @@ func watchPortalMode(ctx context.Context, send func(Mode)) bool {
 				continue
 			}
 			scheme, _ := value.Value().(uint32)
-			next := modeFromPortalScheme(scheme)
-			if next != current {
-				current = next
-				send(next)
-			}
+			notify(modeFromPortalScheme(scheme))
 		}
 	}
 }
