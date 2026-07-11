@@ -1556,6 +1556,19 @@ func TestSpectrumLayoutHidesWhenPaneIsTooSmall(t *testing.T) {
 	}
 }
 
+func TestSpectrumLayoutUsesCoverAreaWithoutEmbeddedArtwork(t *testing.T) {
+	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{SpectrumEnabled: true})
+	app.leftContent = leftContentBoth
+
+	layout := app.spectrumLayout(38, 8)
+	if !layout.visible {
+		t.Fatalf("spectrum hidden without cover artwork: %#v", layout)
+	}
+	if layout.coverW == 0 || layout.spectrumW == 0 || layout.lyricsW == 0 {
+		t.Fatalf("layout did not reserve cover, spectrum, and lyrics areas: %#v", layout)
+	}
+}
+
 func TestSpectrumKeyTogglesVisibility(t *testing.T) {
 	app := NewWithOptions(nil, nil, theme.Default(), log.Discard(), Options{})
 	if app.spectrumEnabled {

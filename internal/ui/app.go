@@ -2254,7 +2254,7 @@ func (a *App) spectrumLayout(w, h int) spectrumPaneLayout {
 		l.coverH = a.coverHeightAboveSpectrum(w, h)
 		l.spectrumY, l.spectrumW, l.spectrumH = l.coverH, w, h-l.coverH
 	default:
-		if a.options.DisableCover || a.coverImage == nil || w < 2*spectrumMinWidth+1 {
+		if a.options.DisableCover || w < 2*spectrumMinWidth+1 {
 			return spectrumPaneLayout{}
 		}
 		coverW := w / 2
